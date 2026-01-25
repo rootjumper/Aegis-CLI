@@ -145,11 +145,18 @@ def load_llm_config_from_env() -> LLMConfig:
         ))
 
     # Determine default provider
-    default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "anthropic")
+    default_provider_str = os.getenv("DEFAULT_LLM_PROVIDER", "anthropic")
+
+    # Validate provider type
+    valid_providers: tuple[str, ...] = ("anthropic", "google", "ollama", "lm_studio")
+    if default_provider_str not in valid_providers:
+        default_provider_str = "anthropic"
+
+    default_provider: LLMProviderType = default_provider_str  # type: ignore
 
     return LLMConfig(
         providers=providers,
-        default_provider=default_provider  # type: ignore
+        default_provider=default_provider
     )
 
 
@@ -191,9 +198,10 @@ def create_model(config: LLMProviderConfig) -> Model:
             api_key=config.api_key or "ollama"
         )
 
+        # Type ignore needed: using custom model name for local Ollama models
         return OpenAIChatModel(
             config.model_name,
-            provider=ollama_provider  # type: ignore
+            provider=ollama_provider  # type: ignore[arg-type]
         )
 
     if config.provider == "lm_studio":
@@ -206,9 +214,10 @@ def create_model(config: LLMProviderConfig) -> Model:
             api_key=config.api_key or "lm-studio"
         )
 
+        # Type ignore needed: using custom model name for local LM Studio models
         return OpenAIChatModel(
             config.model_name,
-            provider=lm_studio_provider  # type: ignore
+            provider=lm_studio_provider  # type: ignore[arg-type]
         )
 
     raise ValueError(f"Unsupported provider: {config.provider}")
