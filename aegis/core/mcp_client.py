@@ -19,12 +19,12 @@ class MCPServerConfig(BaseModel):
 
     Attributes:
         name: Server name/identifier
-        transport: Transport type ("stdio" or "http")
+        transport: Transport type ("stdio", "http", or "sse")
         command: Command to execute (for stdio transport)
         args: Command arguments (for stdio transport)
         env: Environment variables (for stdio transport)
-        url: Server URL (for http transport)
-        headers: HTTP headers (for http transport)
+        url: Server URL (for http/sse transport)
+        headers: HTTP headers (for http/sse transport)
     """
     name: str
     transport: str = "stdio"
@@ -200,14 +200,14 @@ def load_mcp_config(config_path: str | Path | None = None) -> list[MCPServerConf
                     env_substituted[key] = value
             server_data["env"] = env_substituted
 
-        # Substitute environment variables in headers
+        # Substitute environment variables in headers (using same logic as env)
         if "headers" in server_data and server_data["headers"]:
             headers_substituted = {}
             for key, value in server_data["headers"].items():
                 if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
                     env_var_name = value[2:-1]
                     env_value = os.environ.get(env_var_name, "")
-                    headers_substituted[key] = value.replace(f"${{{env_var_name}}}", env_value)
+                    headers_substituted[key] = env_value
                 else:
                     headers_substituted[key] = value
             server_data["headers"] = headers_substituted
