@@ -8,14 +8,13 @@ This module handles configuration and creation of different LLM providers:
 """
 
 import os
-from typing import Any, Literal
+from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers import Provider
-from openai import AsyncOpenAI
+from pydantic_ai.providers.openai import OpenAIProvider
 
 
 LLMProviderType = Literal["anthropic", "google", "ollama", "lm_studio"]
@@ -170,46 +169,46 @@ def create_model(config: LLMProviderConfig) -> Model:
         if not config.api_key:
             raise ValueError("Anthropic API key is required")
         
-        # PydanticAI will use ANTHROPIC_API_KEY from environment
+        # Set environment variable for PydanticAI to use
+        os.environ["ANTHROPIC_API_KEY"] = config.api_key
         return AnthropicModel(config.model_name)
     
     elif config.provider == "google":
         if not config.api_key:
             raise ValueError("Google API key is required")
         
-        # PydanticAI will use GOOGLE_API_KEY or GEMINI_API_KEY from environment
+        # Set environment variable for PydanticAI to use
+        os.environ["GEMINI_API_KEY"] = config.api_key
         return GeminiModel(config.model_name)
     
     elif config.provider == "ollama":
         if not config.base_url:
             raise ValueError("Ollama base_url is required")
         
-        # Create OpenAI-compatible client for Ollama
-        ollama_client = AsyncOpenAI(
+        # Create OpenAI-compatible provider for Ollama
+        ollama_provider = OpenAIProvider(
             base_url=config.base_url,
             api_key=config.api_key or "ollama"
         )
-        ollama_provider: Any = Provider(ollama_client)
         
         return OpenAIChatModel(
             config.model_name,
-            provider=ollama_provider
+            provider=ollama_provider  # type: ignore
         )
     
     elif config.provider == "lm_studio":
         if not config.base_url:
             raise ValueError("LM Studio base_url is required")
         
-        # Create OpenAI-compatible client for LM Studio
-        lm_studio_client = AsyncOpenAI(
+        # Create OpenAI-compatible provider for LM Studio
+        lm_studio_provider = OpenAIProvider(
             base_url=config.base_url,
             api_key=config.api_key or "lm-studio"
         )
-        lm_studio_provider: Any = Provider(lm_studio_client)
         
         return OpenAIChatModel(
             config.model_name,
-            provider=lm_studio_provider
+            provider=lm_studio_provider  # type: ignore
         )
     
     else:
