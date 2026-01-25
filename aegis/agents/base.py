@@ -145,21 +145,22 @@ class BaseAgent(ABC):
     @asynccontextmanager
     async def run_with_mcp(self) -> AsyncIterator[list[Any]]:
         """Context manager for running agent with MCP tools.
-        
-        Initializes MCP server connections, fetches available tools,
-        and ensures proper cleanup. The tools can be injected into
-        a PydanticAI Agent instance for execution.
-        
+
+        Initializes MCP server connections and yields MCP servers that
+        can be used as toolsets in PydanticAI Agent.
+
         Yields:
-            List of MCP tools available to the agent
-            
+            List of MCP servers to use as toolsets
+
         Example:
             ```python
-            async with agent.run_with_mcp() as mcp_tools:
-                # Use mcp_tools with PydanticAI Agent
+            from pydantic_ai import Agent
+
+            async with agent.run_with_mcp() as mcp_toolsets:
+                # Use MCP servers as toolsets with PydanticAI Agent
                 pydantic_agent = Agent(
                     model="claude-3-5-sonnet",
-                    tools=mcp_tools,
+                    toolsets=mcp_toolsets,
                     system_prompt=agent.get_system_prompt()
                 )
                 result = await pydantic_agent.run(task_prompt)
@@ -169,14 +170,14 @@ class BaseAgent(ABC):
             # No MCP servers configured, yield empty list
             yield []
             return
-        
+
         # Create MCP manager
         self._mcp_manager = MCPManager(self.mcp_servers)
-        
-        # Run servers and yield tools
-        async with self._mcp_manager.run_servers() as tools:
-            yield tools
-        
+
+        # Run servers and yield them as toolsets
+        async with self._mcp_manager.run_servers() as servers:
+            yield servers
+
         # Cleanup
         self._mcp_manager = None
     

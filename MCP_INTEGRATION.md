@@ -66,6 +66,7 @@ export GOOGLE_CSE_ID="your_custom_search_engine_id"
 ```python
 from aegis.agents.coder import CoderAgent
 from aegis.core.mcp_client import load_mcp_config, filter_servers_by_name
+from pydantic_ai import Agent
 
 # Load and filter MCP servers
 mcp_servers = load_mcp_config("mcp_config.json")
@@ -76,17 +77,14 @@ coder = CoderAgent()
 coder.mcp_servers = github_servers
 
 # Use agent with MCP tools
-async with coder.run_with_mcp() as mcp_tools:
-    # mcp_tools contains all tools from the GitHub MCP server
-    # Use with PydanticAI Agent
-    from pydantic_ai import Agent as PydanticAgent
-    
-    pydantic_agent = PydanticAgent(
+async with coder.run_with_mcp() as mcp_toolsets:
+    # MCP servers are used as toolsets with PydanticAI Agent
+    pydantic_agent = Agent(
         model="claude-3-5-sonnet-20241022",
-        tools=mcp_tools,
+        toolsets=mcp_toolsets,
         system_prompt=coder.get_system_prompt()
     )
-    
+
     result = await pydantic_agent.run("Create a GitHub utility function")
 ```
 
@@ -188,10 +186,4 @@ pip install mcp pydantic-ai[mcp]
 
 ### Tool Discovery
 
-To see available tools from a server:
-
-```python
-async with agent.run_with_mcp() as tools:
-    for tool in tools:
-        print(f"Tool: {tool.name}")
-```
+To see what's available from MCP servers, check the server documentation or use PydanticAI's inspection tools when the agent runs.

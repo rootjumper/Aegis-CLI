@@ -14,15 +14,15 @@ from aegis.core.mcp_client import load_mcp_config, filter_servers_by_name
 
 async def example_coder_with_github_mcp() -> None:
     """Example: CoderAgent with GitHub MCP server.
-    
+
     This example shows how to:
     1. Load MCP configuration from mcp_config.json
     2. Filter to only GitHub server
     3. Create CoderAgent with MCP servers
-    4. Use the agent with MCP tools available
+    4. Use the agent with MCP toolsets available
     """
     print("=== Example: CoderAgent with GitHub MCP ===\n")
-    
+
     # Load MCP configuration
     try:
         mcp_servers = load_mcp_config("mcp_config.json")
@@ -30,15 +30,15 @@ async def example_coder_with_github_mcp() -> None:
     except FileNotFoundError:
         print("Error: mcp_config.json not found")
         return
-    
+
     # Filter to only GitHub server
     github_servers = filter_servers_by_name(mcp_servers, ["github"])
     print(f"Filtered to GitHub server: {[s.name for s in github_servers]}\n")
-    
+
     # Create CoderAgent with MCP servers
     coder = CoderAgent()
     coder.mcp_servers = github_servers
-    
+
     # Create a task
     task = AgentTask(
         id="example-1",
@@ -48,24 +48,24 @@ async def example_coder_with_github_mcp() -> None:
             "file_path": "github_utils.py"
         }
     )
-    
-    # Use the agent with MCP tools
-    print("Running agent with MCP tools...")
-    async with coder.run_with_mcp() as mcp_tools:
-        print(f"Available MCP tools: {len(mcp_tools)}")
-        
-        # In a real scenario, you would use these tools with PydanticAI:
-        # from pydantic_ai import Agent as PydanticAgent
-        # 
-        # pydantic_agent = PydanticAgent(
+
+    # Use the agent with MCP toolsets
+    print("Running agent with MCP toolsets...")
+    async with coder.run_with_mcp() as mcp_toolsets:
+        print(f"Available MCP toolsets: {len(mcp_toolsets)}")
+
+        # In a real scenario, you would use these toolsets with PydanticAI:
+        # from pydantic_ai import Agent
+        #
+        # pydantic_agent = Agent(
         #     model="claude-3-5-sonnet-20241022",
-        #     tools=mcp_tools,
+        #     toolsets=mcp_toolsets,
         #     system_prompt=coder.get_system_prompt()
         # )
         # result = await pydantic_agent.run(
         #     f"Generate code: {task.payload['description']}"
         # )
-        
+
         # For this example, just process the task normally
         response = await coder.process(task)
         print(f"Agent response: {response.status}")
@@ -74,30 +74,30 @@ async def example_coder_with_github_mcp() -> None:
 
 async def example_coder_with_multiple_mcp_servers() -> None:
     """Example: CoderAgent with multiple MCP servers.
-    
+
     This example shows how to equip the CoderAgent with multiple
     MCP servers (GitHub and Google Search) for richer tool access.
     """
     print("=== Example: CoderAgent with Multiple MCP Servers ===\n")
-    
+
     # Load MCP configuration
     try:
         mcp_servers = load_mcp_config("mcp_config.json")
     except FileNotFoundError:
         print("Error: mcp_config.json not found")
         return
-    
+
     # Filter to GitHub and Google Search servers
     selected_servers = filter_servers_by_name(
-        mcp_servers, 
+        mcp_servers,
         ["github", "google-search"]
     )
     print(f"Selected servers: {[s.name for s in selected_servers]}\n")
-    
+
     # Create CoderAgent with MCP servers
     coder = CoderAgent()
     coder.mcp_servers = selected_servers
-    
+
     # Create a task
     task = AgentTask(
         id="example-2",
@@ -107,12 +107,12 @@ async def example_coder_with_multiple_mcp_servers() -> None:
             "file_path": "api_design.py"
         }
     )
-    
-    # Use the agent with MCP tools
-    print("Running agent with MCP tools...")
-    async with coder.run_with_mcp() as mcp_tools:
-        print(f"Available MCP tools from {len(selected_servers)} servers: {len(mcp_tools)}")
-        
+
+    # Use the agent with MCP toolsets
+    print("Running agent with MCP toolsets...")
+    async with coder.run_with_mcp() as mcp_toolsets:
+        print(f"Available MCP toolsets from {len(selected_servers)} servers: {len(mcp_toolsets)}")
+
         # Process task
         response = await coder.process(task)
         print(f"Agent response: {response.status}")
