@@ -20,8 +20,8 @@
       }
     },
     {
-      "name": "example-http-server",
-      "transport": "http",
+      "name": "example-sse-server",
+      "transport": "sse",
       "url": "http://localhost:8000/mcp",
       "headers": {
         "Authorization": "Bearer ${MCP_API_KEY}"

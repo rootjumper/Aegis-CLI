@@ -7,7 +7,7 @@ This document explains how to use MCP servers with Aegis-CLI agents to extend th
 The Model Context Protocol (MCP) allows agents to access external tools and services. Aegis-CLI uses PydanticAI's native MCP integration to connect agents to MCP servers via:
 
 - **Stdio Transport**: For local servers (e.g., `npx -y @modelcontextprotocol/server-github`)
-- **HTTP Transport**: For remote servers
+- **SSE/HTTP Transport**: For remote servers (Server-Sent Events)
 
 ## Configuration
 
@@ -156,7 +156,7 @@ You can create your own MCP servers following the [MCP specification](https://mo
         │                       │
         ▼                       ▼
 ┌──────────────┐        ┌──────────────┐
-│ Stdio Server │        │ HTTP Server  │
+│ Stdio Server │        │ SSE Server   │
 │ (Local)      │        │ (Remote)     │
 └──────────────┘        └──────────────┘
 ```

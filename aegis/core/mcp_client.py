@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from pydantic import BaseModel, Field
 
-from pydantic_ai.mcp import MCPServerStdio, MCPServerHTTP
+from pydantic_ai.mcp import MCPServerStdio, MCPServerSSE
 
 
 class MCPServerConfig(BaseModel):
@@ -38,7 +38,7 @@ class MCPServerConfig(BaseModel):
 class MCPManager:
     """Manager for MCP server connections and tools.
     
-    Handles both stdio and HTTP transport types for MCP servers.
+    Handles both stdio and SSE transport types for MCP servers.
     Provides a context manager interface for managing server lifecycle.
     """
     
@@ -49,13 +49,13 @@ class MCPManager:
             server_configs: List of MCP server configurations
         """
         self.server_configs = server_configs
-        self._servers: list[MCPServerStdio | MCPServerHTTP] = []
+        self._servers: list[MCPServerStdio | MCPServerSSE] = []
         self._tools: list[Any] = []
     
     def _create_server(
         self, 
         config: MCPServerConfig
-    ) -> MCPServerStdio | MCPServerHTTP:
+    ) -> MCPServerStdio | MCPServerSSE:
         """Create an MCP server instance from configuration.
         
         Args:
@@ -77,19 +77,19 @@ class MCPManager:
                 args=config.args,
                 env=config.env if config.env else None
             )
-        elif config.transport == "http":
+        elif config.transport == "http" or config.transport == "sse":
             if not config.url:
                 raise ValueError(
-                    f"HTTP transport requires 'url' for server {config.name}"
+                    f"SSE/HTTP transport requires 'url' for server {config.name}"
                 )
-            return MCPServerHTTP(
+            return MCPServerSSE(
                 url=config.url,
                 headers=config.headers if config.headers else None
             )
         else:
             raise ValueError(
                 f"Unsupported transport type: {config.transport}. "
-                "Must be 'stdio' or 'http'"
+                "Must be 'stdio', 'http', or 'sse'"
             )
     
     @asynccontextmanager
