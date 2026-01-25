@@ -22,7 +22,7 @@ LLMProviderType = Literal["anthropic", "google", "ollama", "lm_studio"]
 
 class LLMProviderConfig(BaseModel):
     """Configuration for an LLM provider.
-    
+
     Attributes:
         provider: Provider type
         model_name: Name of the model to use
@@ -39,17 +39,17 @@ class LLMProviderConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     """Global LLM configuration.
-    
+
     Attributes:
         providers: List of configured LLM providers
         default_provider: Name of default provider to use
     """
     providers: list[LLMProviderConfig] = Field(default_factory=list)
     default_provider: LLMProviderType = "anthropic"
-    
+
     def get_default_config(self) -> LLMProviderConfig | None:
         """Get the default provider configuration.
-        
+
         Returns:
             Default provider config or None if not found
         """
@@ -57,27 +57,27 @@ class LLMConfig(BaseModel):
         for config in self.providers:
             if config.default:
                 return config
-        
+
         # Fall back to default_provider setting
         for config in self.providers:
             if config.provider == self.default_provider:
                 return config
-        
+
         # Return first provider if available
         if self.providers:
             return self.providers[0]
-        
+
         return None
-    
+
     def get_provider_config(
-        self, 
+        self,
         provider: LLMProviderType
     ) -> LLMProviderConfig | None:
         """Get configuration for a specific provider.
-        
+
         Args:
             provider: Provider type to get config for
-            
+
         Returns:
             Provider config or None if not found
         """
@@ -89,7 +89,7 @@ class LLMConfig(BaseModel):
 
 def load_llm_config_from_env() -> LLMConfig:
     """Load LLM configuration from environment variables.
-    
+
     Reads configuration from environment variables:
     - ANTHROPIC_API_KEY: Anthropic API key
     - ANTHROPIC_MODEL: Anthropic model name (default: claude-3-5-sonnet-20241022)
@@ -100,12 +100,12 @@ def load_llm_config_from_env() -> LLMConfig:
     - LM_STUDIO_BASE_URL: LM Studio server URL (default: http://localhost:1234/v1)
     - LM_STUDIO_MODEL: LM Studio model name
     - DEFAULT_LLM_PROVIDER: Default provider to use (default: anthropic)
-    
+
     Returns:
         LLM configuration
     """
     providers: list[LLMProviderConfig] = []
-    
+
     # Anthropic configuration
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
     if anthropic_api_key:
@@ -114,7 +114,7 @@ def load_llm_config_from_env() -> LLMConfig:
             model_name=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
             api_key=anthropic_api_key
         ))
-    
+
     # Google configuration
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if google_api_key:
@@ -123,7 +123,7 @@ def load_llm_config_from_env() -> LLMConfig:
             model_name=os.getenv("GOOGLE_MODEL", "gemini-1.5-flash"),
             api_key=google_api_key
         ))
-    
+
     # Ollama configuration
     ollama_model = os.getenv("OLLAMA_MODEL")
     if ollama_model:
@@ -133,7 +133,7 @@ def load_llm_config_from_env() -> LLMConfig:
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
             api_key="ollama"  # Ollama doesn't require real API key
         ))
-    
+
     # LM Studio configuration
     lm_studio_model = os.getenv("LM_STUDIO_MODEL")
     if lm_studio_model:
@@ -143,10 +143,10 @@ def load_llm_config_from_env() -> LLMConfig:
             base_url=os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
             api_key="lm-studio"  # LM Studio doesn't require real API key
         ))
-    
+
     # Determine default provider
     default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "anthropic")
-    
+
     return LLMConfig(
         providers=providers,
         default_provider=default_provider  # type: ignore
@@ -155,103 +155,102 @@ def load_llm_config_from_env() -> LLMConfig:
 
 def create_model(config: LLMProviderConfig) -> Model:
     """Create a PydanticAI Model from provider configuration.
-    
+
     Args:
         config: Provider configuration
-        
+
     Returns:
         PydanticAI Model instance
-        
+
     Raises:
         ValueError: If provider type is unsupported or configuration is invalid
     """
     if config.provider == "anthropic":
         if not config.api_key:
             raise ValueError("Anthropic API key is required")
-        
+
         # Set environment variable for PydanticAI to use
         os.environ["ANTHROPIC_API_KEY"] = config.api_key
         return AnthropicModel(config.model_name)
-    
-    elif config.provider == "google":
+
+    if config.provider == "google":
         if not config.api_key:
             raise ValueError("Google API key is required")
-        
+
         # Set environment variable for PydanticAI to use
         os.environ["GEMINI_API_KEY"] = config.api_key
         return GeminiModel(config.model_name)
-    
-    elif config.provider == "ollama":
+
+    if config.provider == "ollama":
         if not config.base_url:
             raise ValueError("Ollama base_url is required")
-        
+
         # Create OpenAI-compatible provider for Ollama
         ollama_provider = OpenAIProvider(
             base_url=config.base_url,
             api_key=config.api_key or "ollama"
         )
-        
+
         return OpenAIChatModel(
             config.model_name,
             provider=ollama_provider  # type: ignore
         )
-    
-    elif config.provider == "lm_studio":
+
+    if config.provider == "lm_studio":
         if not config.base_url:
             raise ValueError("LM Studio base_url is required")
-        
+
         # Create OpenAI-compatible provider for LM Studio
         lm_studio_provider = OpenAIProvider(
             base_url=config.base_url,
             api_key=config.api_key or "lm-studio"
         )
-        
+
         return OpenAIChatModel(
             config.model_name,
             provider=lm_studio_provider  # type: ignore
         )
-    
-    else:
-        raise ValueError(f"Unsupported provider: {config.provider}")
+
+    raise ValueError(f"Unsupported provider: {config.provider}")
 
 
 def get_default_model() -> Model:
     """Get the default model based on environment configuration.
-    
+
     Returns:
         Default PydanticAI Model instance
-        
+
     Raises:
         ValueError: If no providers are configured
     """
     llm_config = load_llm_config_from_env()
-    
+
     default_config = llm_config.get_default_config()
     if not default_config:
         raise ValueError(
             "No LLM providers configured. Please set at least one of: "
             "ANTHROPIC_API_KEY, GOOGLE_API_KEY, OLLAMA_MODEL, LM_STUDIO_MODEL"
         )
-    
+
     return create_model(default_config)
 
 
 def get_model_for_provider(provider: LLMProviderType) -> Model:
     """Get a model for a specific provider.
-    
+
     Args:
         provider: Provider type
-        
+
     Returns:
         PydanticAI Model instance for the provider
-        
+
     Raises:
         ValueError: If provider is not configured
     """
     llm_config = load_llm_config_from_env()
-    
+
     provider_config = llm_config.get_provider_config(provider)
     if not provider_config:
         raise ValueError(f"Provider '{provider}' is not configured")
-    
+
     return create_model(provider_config)
