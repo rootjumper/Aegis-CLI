@@ -1,0 +1,62 @@
+[project]
+name = "aegis-cli"
+version = "0.1.0"
+description = "A modular, self-correcting multi-agent framework with advanced reasoning capabilities"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Aegis Team" }
+]
+dependencies = [
+    "pydantic-ai>=0.0.14",
+    "pydantic>=2.0",
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+    "sqlalchemy>=2.0.0",
+    "anthropic>=0.18.0",
+    "pytest>=7.4.0",
+    "pylint>=3.0.0",
+    "mypy>=1.8.0",
+    "python-dotenv>=1.0.0",
+    "aiosqlite>=0.19.0",
+]
+
+[project.scripts]
+aegis = "aegis.main:app"
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pylint.messages_control]
+max-line-length = 100
+disable = ["C0111", "R0903"]
+
+[tool.coverage.run]
+source = ["aegis"]
+omit = ["tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
