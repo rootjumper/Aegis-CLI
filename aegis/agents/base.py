@@ -5,8 +5,11 @@ must implement to participate in the Aegis framework.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Literal
 from pydantic import BaseModel, Field
+
+from aegis.core.mcp_client import MCPManager, MCPServerConfig
 
 
 class AgentTask(BaseModel):
@@ -72,13 +75,20 @@ class BaseAgent(ABC):
     validating inputs, and coordinating with tools.
     """
     
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self, 
+        name: str,
+        mcp_servers: list[MCPServerConfig] | None = None
+    ) -> None:
         """Initialize the agent.
         
         Args:
             name: Agent name/identifier
+            mcp_servers: Optional list of MCP server configurations
         """
         self.name = name
+        self.mcp_servers = mcp_servers or []
+        self._mcp_manager: MCPManager | None = None
     
     @abstractmethod
     async def process(self, task: AgentTask) -> AgentResponse:
@@ -131,3 +141,50 @@ class BaseAgent(ABC):
             List of tool names needed for agent operation
         """
         pass
+    
+    @asynccontextmanager
+    async def run_with_mcp(self) -> AsyncIterator[list[Any]]:
+        """Context manager for running agent with MCP tools.
+
+        Initializes MCP server connections and yields MCP servers that
+        can be used as toolsets in PydanticAI Agent.
+
+        Yields:
+            List of MCP servers to use as toolsets
+
+        Example:
+            ```python
+            from pydantic_ai import Agent
+
+            async with agent.run_with_mcp() as mcp_toolsets:
+                # Use MCP servers as toolsets with PydanticAI Agent
+                pydantic_agent = Agent(
+                    model="claude-3-5-sonnet",
+                    toolsets=mcp_toolsets,
+                    system_prompt=agent.get_system_prompt()
+                )
+                result = await pydantic_agent.run(task_prompt)
+            ```
+        """
+        if not self.mcp_servers:
+            # No MCP servers configured, yield empty list
+            yield []
+            return
+
+        # Create MCP manager
+        self._mcp_manager = MCPManager(self.mcp_servers)
+
+        # Run servers and yield them as toolsets
+        async with self._mcp_manager.run_servers() as servers:
+            yield servers
+
+        # Cleanup
+        self._mcp_manager = None
+    
+    def get_mcp_server_names(self) -> list[str]:
+        """Get names of configured MCP servers.
+        
+        Returns:
+            List of server names
+        """
+        return [server.name for server in self.mcp_servers]
