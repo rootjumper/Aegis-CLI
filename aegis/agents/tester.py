@@ -4,6 +4,7 @@ Generates and runs pytest tests for code validation.
 """
 
 from typing import Any
+from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
@@ -20,9 +21,13 @@ class TesterAgent(BaseAgent):
     - Create failure reports for Coder
     """
     
-    def __init__(self) -> None:
-        """Initialize the tester agent."""
-        super().__init__("tester")
+    def __init__(self, model: Model | None = None) -> None:
+        """Initialize the tester agent.
+        
+        Args:
+            model: Optional PydanticAI Model to use
+        """
+        super().__init__("tester", model=model)
         self.registry = get_registry()
         self.feedback_parser = FeedbackParser()
     

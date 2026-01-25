@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, MCPServerConfig
 from aegis.core.mcp_client import load_mcp_config, filter_servers_by_name
@@ -26,14 +27,16 @@ class OrchestratorAgent(BaseAgent):
     
     def __init__(
         self,
-        mcp_config_path: str | Path | None = None
+        mcp_config_path: str | Path | None = None,
+        model: Model | None = None
     ) -> None:
         """Initialize the orchestrator agent.
         
         Args:
             mcp_config_path: Optional path to MCP configuration file
+            model: Optional PydanticAI Model to use
         """
-        super().__init__("orchestrator")
+        super().__init__("orchestrator", model=model)
         self.registry = get_registry()
         self.mcp_config_path = mcp_config_path
         self._mcp_servers: list[MCPServerConfig] = []

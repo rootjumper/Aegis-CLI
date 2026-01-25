@@ -5,6 +5,7 @@ Reviews code for quality, security, and best practices.
 
 import re
 from typing import Any
+from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse
 from aegis.tools.registry import get_registry
@@ -29,9 +30,13 @@ class CriticAgent(BaseAgent):
         (r"secret\s*=\s*['\"][^'\"]+['\"]", "Hardcoded secret detected"),
     ]
     
-    def __init__(self) -> None:
-        """Initialize the critic agent."""
-        super().__init__("critic")
+    def __init__(self, model: Model | None = None) -> None:
+        """Initialize the critic agent.
+        
+        Args:
+            model: Optional PydanticAI Model to use
+        """
+        super().__init__("critic", model=model)
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:
