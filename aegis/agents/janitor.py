@@ -4,6 +4,7 @@ Keeps documentation in sync with code changes.
 """
 
 from typing import Any
+from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
@@ -19,9 +20,13 @@ class JanitorAgent(BaseAgent):
     - Clean up unused imports
     """
     
-    def __init__(self) -> None:
-        """Initialize the janitor agent."""
-        super().__init__("janitor")
+    def __init__(self, model: Model | None = None) -> None:
+        """Initialize the janitor agent.
+        
+        Args:
+            model: Optional PydanticAI Model to use
+        """
+        super().__init__("janitor", model=model)
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:

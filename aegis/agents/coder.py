@@ -4,6 +4,7 @@ Generates type-annotated Python code using best practices.
 """
 
 from typing import Any
+from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
@@ -19,9 +20,13 @@ class CoderAgent(BaseAgent):
     - Security best practices
     """
     
-    def __init__(self) -> None:
-        """Initialize the coder agent."""
-        super().__init__("coder")
+    def __init__(self, model: Model | None = None) -> None:
+        """Initialize the coder agent.
+        
+        Args:
+            model: Optional PydanticAI Model to use
+        """
+        super().__init__("coder", model=model)
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:

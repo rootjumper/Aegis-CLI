@@ -13,6 +13,7 @@ Aegis-CLI is a production-ready multi-agent framework that implements a "Plan-Ex
 
 - 🤖 **Multi-Agent Architecture**: Specialized agents (Orchestrator, Coder, Critic, Tester, Janitor) work together
 - 🔄 **Self-Correction Loop**: Automatic verification and retry with feedback incorporation
+- 🧠 **Multi-LLM Support**: Use Anthropic, Google, Ollama, or LM Studio - [Configuration Guide](docs/LLM_CONFIGURATION.md)
 - 🛡️ **Security-First**: Built-in security checks and safe command execution
 - 📝 **Reasoning Traces**: Markdown-based logging of all agent thoughts and actions
 - 💾 **Persistent Memory**: SQLite-based session management and agent memory
@@ -59,7 +60,11 @@ Aegis-CLI is a production-ready multi-agent framework that implements a "Plan-Ex
 
 - Python 3.11 or higher
 - [uv](https://github.com/astral-sh/uv) package manager (recommended) or pip
-- Anthropic API key
+- At least one LLM provider:
+  - Anthropic API key (recommended)
+  - Google API key (Gemini)
+  - Ollama server (local)
+  - LM Studio (local)
 
 ### Installation
 
@@ -86,6 +91,10 @@ pip install -e .
 
 ### Configuration
 
+Aegis-CLI supports multiple LLM providers. Configure at least one of the following:
+
+#### Option 1: Anthropic (Claude) - Recommended
+
 1. Copy the example environment file:
 
 ```bash
@@ -96,8 +105,71 @@ cp .env.example .env
 
 ```env
 ANTHROPIC_API_KEY=your_api_key_here
-AEGIS_LOG_LEVEL=INFO
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Optional, this is the default
+DEFAULT_LLM_PROVIDER=anthropic  # Optional, this is the default
+```
+
+#### Option 2: Google (Gemini)
+
+1. Get your Google AI API key from [Google AI Studio](https://aistudio.google.com/)
+
+2. Add to your `.env`:
+
+```env
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_MODEL=gemini-1.5-flash  # Optional, this is the default
+DEFAULT_LLM_PROVIDER=google
+```
+
+#### Option 3: Ollama (Local)
+
+1. Install and run [Ollama](https://ollama.ai/)
+
+2. Pull a model (e.g., `ollama pull llama2`)
+
+3. Add to your `.env`:
+
+```env
+OLLAMA_MODEL=llama2
+OLLAMA_BASE_URL=http://localhost:11434/v1  # Optional, this is the default
+DEFAULT_LLM_PROVIDER=ollama
+```
+
+#### Option 4: LM Studio (Local)
+
+1. Install and run [LM Studio](https://lmstudio.ai/)
+
+2. Load a model and start the local server
+
+3. Add to your `.env`:
+
+```env
+LM_STUDIO_MODEL=your-local-model-name
+LM_STUDIO_BASE_URL=http://localhost:1234/v1  # Optional, this is the default
+DEFAULT_LLM_PROVIDER=lm_studio
+```
+
+#### Multi-Provider Setup
+
+You can configure multiple providers and switch between them:
+
+```env
+# Configure multiple providers
+ANTHROPIC_API_KEY=your_anthropic_key
+GOOGLE_API_KEY=your_google_key
+OLLAMA_MODEL=llama2
+
+# Set default provider
+DEFAULT_LLM_PROVIDER=anthropic  # or google, ollama, lm_studio
+```
+
+#### Additional Settings
+
+```env
+AEGIS_LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 AEGIS_MAX_RETRIES=3
+AEGIS_DB_PATH=.aegis/session.db
+AEGIS_LOGS_PATH=.aegis/logs
 ```
 
 ### First Run
@@ -376,15 +448,38 @@ Task history is stored in `.aegis/session.db` (SQLite):
 - **reasoning_traces**: Agent reasoning logs
 - **agent_memory**: Persistent agent memory with TTL
 
-## Configuration
+## Configuration Reference
 
-Environment variables (`.env`):
+Aegis-CLI can be configured through environment variables in the `.env` file:
+
+### LLM Provider Configuration
+
+Choose one or more LLM providers:
 
 ```env
-# Required
+# Anthropic (Claude)
 ANTHROPIC_API_KEY=your_api_key_here
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Default model
 
-# Optional
+# Google (Gemini)
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_MODEL=gemini-1.5-flash  # Default model
+
+# Ollama (Local)
+OLLAMA_MODEL=llama2
+OLLAMA_BASE_URL=http://localhost:11434/v1  # Default URL
+
+# LM Studio (Local)
+LM_STUDIO_MODEL=your-local-model
+LM_STUDIO_BASE_URL=http://localhost:1234/v1  # Default URL
+
+# Default provider selection
+DEFAULT_LLM_PROVIDER=anthropic  # or google, ollama, lm_studio
+```
+
+### Application Settings
+
+```env
 AEGIS_LOG_LEVEL=INFO          # DEBUG, INFO, WARNING, ERROR
 AEGIS_MAX_RETRIES=3           # Maximum retry attempts
 AEGIS_DB_PATH=.aegis/session.db
@@ -399,8 +494,14 @@ AEGIS_LOGS_PATH=.aegis/logs
 - Ensure virtual environment is activated
 - Run `uv sync` or `pip install -e .`
 
-**"API Key not found"**
-- Set `ANTHROPIC_API_KEY` in `.env` file
+**"API Key not found"** or **"No LLM providers configured"**
+- Set at least one LLM provider in `.env` file:
+  - `ANTHROPIC_API_KEY` for Claude
+  - `GOOGLE_API_KEY` for Gemini
+  - `OLLAMA_MODEL` for Ollama
+  - `LM_STUDIO_MODEL` for LM Studio
+- Check that your `.env` file is in the project root
+- Verify your API keys are valid
 
 **"Database locked"**
 - Close other Aegis-CLI instances
@@ -437,10 +538,11 @@ Contributions are welcome! Please:
 
 ## Roadmap
 
+- [x] Multi-model support (Anthropic, Google, Ollama, LM Studio)
+- [ ] Additional LLM providers (OpenAI, Cohere, etc.)
 - [ ] Additional language support (JavaScript, Go, Rust)
 - [ ] Web UI for task monitoring
 - [ ] Plugin system for custom agents
-- [ ] Multi-model support (OpenAI, Cohere, etc.)
 - [ ] Distributed execution
 - [ ] Advanced caching and optimization
 
@@ -451,7 +553,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - Built with [PydanticAI](https://github.com/pydantic/pydantic-ai)
-- Powered by [Anthropic Claude](https://www.anthropic.com/)
+- Supports multiple LLM providers:
+  - [Anthropic Claude](https://www.anthropic.com/)
+  - [Google Gemini](https://ai.google.dev/)
+  - [Ollama](https://ollama.ai/)
+  - [LM Studio](https://lmstudio.ai/)
 - CLI framework by [Typer](https://typer.tiangolo.com/)
 - Beautiful terminal UI with [Rich](https://rich.readthedocs.io/)
 

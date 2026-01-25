@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Literal
 from pydantic import BaseModel, Field
+from pydantic_ai.models import Model
 
 from aegis.core.mcp_client import MCPManager, MCPServerConfig
 
@@ -78,17 +79,21 @@ class BaseAgent(ABC):
     def __init__(
         self, 
         name: str,
-        mcp_servers: list[MCPServerConfig] | None = None
+        mcp_servers: list[MCPServerConfig] | None = None,
+        model: Model | None = None
     ) -> None:
         """Initialize the agent.
         
         Args:
             name: Agent name/identifier
             mcp_servers: Optional list of MCP server configurations
+            model: Optional PydanticAI Model to use. If not provided,
+                   uses default model from configuration
         """
         self.name = name
         self.mcp_servers = mcp_servers or []
         self._mcp_manager: MCPManager | None = None
+        self._model = model
     
     @abstractmethod
     async def process(self, task: AgentTask) -> AgentResponse:
@@ -180,6 +185,26 @@ class BaseAgent(ABC):
 
         # Cleanup
         self._mcp_manager = None
+    
+    def get_model(self) -> Model:
+        """Get the model to use for this agent.
+        
+        Returns the model specified during initialization, or the default
+        model from configuration if none was specified.
+        
+        Returns:
+            PydanticAI Model instance
+            
+        Raises:
+            ValueError: If no model is configured
+        """
+        if self._model is not None:
+            return self._model
+        
+        # Import here to avoid circular dependency
+        from aegis.core.llm_config import get_default_model
+        
+        return get_default_model()
     
     def get_mcp_server_names(self) -> list[str]:
         """Get names of configured MCP servers.
