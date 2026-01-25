@@ -8,10 +8,12 @@ The orchestrator is responsible for:
 """
 
 import uuid
+from pathlib import Path
 from typing import Any
 from pydantic_ai import Agent as PydanticAgent
 
-from aegis.agents.base import BaseAgent, AgentTask, AgentResponse
+from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, MCPServerConfig
+from aegis.core.mcp_client import load_mcp_config, filter_servers_by_name
 from aegis.tools.registry import get_registry
 
 
@@ -22,10 +24,50 @@ class OrchestratorAgent(BaseAgent):
     agents while managing dependencies and verification.
     """
     
-    def __init__(self) -> None:
-        """Initialize the orchestrator agent."""
+    def __init__(
+        self,
+        mcp_config_path: str | Path | None = None
+    ) -> None:
+        """Initialize the orchestrator agent.
+        
+        Args:
+            mcp_config_path: Optional path to MCP configuration file
+        """
         super().__init__("orchestrator")
         self.registry = get_registry()
+        self.mcp_config_path = mcp_config_path
+        self._mcp_servers: list[MCPServerConfig] = []
+        
+        # Load MCP config if available
+        if mcp_config_path:
+            try:
+                self._mcp_servers = load_mcp_config(mcp_config_path)
+            except (FileNotFoundError, ValueError):
+                # Config file not found or invalid, continue without MCP
+                pass
+    
+    def get_mcp_servers_for_agent(
+        self, 
+        agent_name: str,
+        server_names: list[str] | None = None
+    ) -> list[MCPServerConfig]:
+        """Get MCP servers to equip a specific agent with.
+        
+        Args:
+            agent_name: Name of the agent
+            server_names: Optional list of server names to filter by
+            
+        Returns:
+            List of MCP server configurations for the agent
+        """
+        if not self._mcp_servers:
+            return []
+        
+        if server_names:
+            return filter_servers_by_name(self._mcp_servers, server_names)
+        
+        # Return all servers by default
+        return self._mcp_servers.copy()
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a task by delegating to appropriate agents.
