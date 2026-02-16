@@ -211,6 +211,12 @@ aegis agents
 # List available tools
 aegis tools
 
+# Health check
+aegis doctor
+
+# Validate configuration
+aegis validate
+
 # Reset session (clears database and logs)
 aegis reset
 ```
@@ -335,26 +341,79 @@ aegis-cli/
 
 ## Tools
 
+Aegis-CLI includes 6 powerful built-in tools for agent operations:
+
 ### FileSystem Tool
 
-- `read_file`: Read files with encoding detection
-- `list_directory`: List files with glob patterns
-- `search_content`: Grep-like content search
-- `smart_patch`: Surgical file edits
+File operations with comprehensive functionality:
+
+- `read_file`: Read files with automatic encoding detection
+- `write_file`: Write content to files with parent directory creation
+- `delete_file`: Safely delete files
+- `create_directory`: Create directories recursively
+- `list_directory`: List files with glob pattern support
+- `search_content`: Grep-like content search across files
+- `smart_patch`: Apply surgical edits to files
+- `file_exists`: Check file/directory existence
 
 ### Shell Tool
 
-- Whitelisted safe commands
-- Human-in-the-loop confirmation
-- Timeout enforcement
-- Output capture and parsing
+Safe command execution with security features:
+
+- Whitelisted safe commands (git, pytest, pip, npm, docker, etc.)
+- Human-in-the-loop confirmation for sensitive operations
+- Timeout enforcement to prevent hanging
+- Comprehensive output capture and parsing
+- Support for 30+ development tools
 
 ### Context Tool
 
-- `remember`: Store values in agent memory
-- `recall`: Retrieve stored values
-- `forget`: Delete values
-- TTL-based expiration
+Agent memory management:
+
+- `remember`: Store values in persistent agent memory
+- `recall`: Retrieve stored values with agent filtering
+- `forget`: Delete values from memory
+- TTL-based automatic expiration
+- Support for complex data structures
+
+### Git Tool
+
+Version control operations:
+
+- `status`: Get repository status with parsed summary
+- `diff`: Show file differences (staged/unstaged)
+- `log`: View commit history with formatting
+- `branch`: List or create branches
+- `show`: Display commit details
+- `add`: Stage files for commit
+- `commit`: Create commits
+- `current_branch`: Get active branch name
+
+### Testing Tool
+
+Test execution and analysis:
+
+- `run_tests`: Execute pytest tests with detailed output
+- `run_coverage`: Generate coverage reports with thresholds
+- `list_tests`: Discover available tests
+- `run_specific`: Run specific tests by name/pattern
+- `validate_tests`: Check test structure and naming
+
+### Python Tool
+
+Python code analysis:
+
+- `analyze_imports`: Parse and categorize import statements
+- `lint`: Run pylint for code quality checks
+- `type_check`: Execute mypy type checking
+- `format_check`: Verify code formatting (black)
+- `parse_syntax`: Validate Python syntax
+- `get_functions`: Extract all function definitions
+- `get_classes`: Extract class definitions with methods
+
+For detailed usage examples, see [Tool Usage Guide](docs/TOOL_USAGE.md).
+
+For developing custom tools, see [Tool Development Guide](docs/TOOL_DEVELOPMENT.md).
 
 ## Verification Cycle
 
