@@ -104,14 +104,19 @@ async def test_shell_command_timeout():
     """Test command timeout handling."""
     shell_tool = SafeShell()
     
-    # Note: This test might be slow. We're testing the timeout functionality.
-    # Using a very short timeout to fail fast
+    # Test timeout functionality with a long-running command
+    # Using a very short timeout (1 second) to fail fast
     result = await shell_tool.execute(
         command=["python", "-c", "import time; time.sleep(100)"],
         require_confirmation=False,
         timeout=1  # 1 second timeout
     )
     
-    # Should timeout
+    # Command should timeout with success=False
+    # Note: We check both error message and data because timeout handling
+    # may return error message OR error data depending on how subprocess fails
     assert result.success is False
-    assert "timed out" in result.error.lower() or result.data is not None
+    is_timeout_error = "timed out" in result.error.lower() if result.error else False
+    has_error_data = result.data is not None
+    assert is_timeout_error or has_error_data, \
+        "Command should timeout with error message or error data"

@@ -240,7 +240,8 @@ class TestingTool(Tool):
         """
         import re
         
-        # Look for "TOTAL ... XX%"
+        # Look for "TOTAL <statements> <missing> <coverage>%"
+        # Example: "TOTAL      100     10     90%"
         match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
         if match:
             return float(match.group(1))

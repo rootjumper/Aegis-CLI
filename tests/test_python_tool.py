@@ -47,7 +47,8 @@ async def async_function():
     # Cleanup
     try:
         os.unlink(temp_path)
-    except:
+    except Exception:
+        # Ignore cleanup errors
         pass
 
 
