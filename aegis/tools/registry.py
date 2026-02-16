@@ -31,7 +31,10 @@ class ToolRegistry:
         tool_modules = [
             "aegis.tools.filesystem",
             "aegis.tools.shell",
-            "aegis.tools.context"
+            "aegis.tools.context",
+            "aegis.tools.git",
+            "aegis.tools.testing",
+            "aegis.tools.python"
         ]
         
         for module_name in tool_modules:

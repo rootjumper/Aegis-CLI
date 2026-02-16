@@ -38,7 +38,11 @@ class FileSystemTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["read_file", "list_directory", "search_content", "smart_patch"],
+                    "enum": [
+                        "read_file", "write_file", "list_directory", 
+                        "search_content", "smart_patch", "delete_file",
+                        "create_directory", "file_exists"
+                    ],
                     "description": "Action to perform"
                 },
                 "path": {
@@ -48,6 +52,10 @@ class FileSystemTool(Tool):
                 "pattern": {
                     "type": "string",
                     "description": "Search pattern or glob pattern"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to write (for write_file)"
                 },
                 "changes": {
                     "type": "array",
@@ -71,6 +79,11 @@ class FileSystemTool(Tool):
         try:
             if action == "read_file":
                 return await self._read_file(kwargs.get("path", ""))
+            elif action == "write_file":
+                return await self._write_file(
+                    kwargs.get("path", ""),
+                    kwargs.get("content", "")
+                )
             elif action == "list_directory":
                 return await self._list_directory(
                     kwargs.get("path", "."),
@@ -86,6 +99,12 @@ class FileSystemTool(Tool):
                     kwargs.get("path", ""),
                     kwargs.get("changes", [])
                 )
+            elif action == "delete_file":
+                return await self._delete_file(kwargs.get("path", ""))
+            elif action == "create_directory":
+                return await self._create_directory(kwargs.get("path", ""))
+            elif action == "file_exists":
+                return await self._file_exists(kwargs.get("path", ""))
             else:
                 return ToolResult(
                     success=False,
@@ -246,3 +265,110 @@ class FileSystemTool(Tool):
         
         except Exception as e:
             return ToolResult(success=False, error=f"Error patching file: {e}")
+    
+    async def _write_file(self, path: str, content: str) -> ToolResult:
+        """Write content to a file.
+        
+        Args:
+            path: File path
+            content: Content to write
+            
+        Returns:
+            ToolResult with success status
+        """
+        if not path:
+            return ToolResult(success=False, error="Path is required")
+        
+        try:
+            # Create parent directories if they don't exist
+            parent_dir = Path(path).parent
+            if not parent_dir.exists():
+                parent_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Write content
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            
+            return ToolResult(
+                success=True,
+                data={"message": f"File written successfully: {path}", "path": path}
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"Error writing file: {e}")
+    
+    async def _delete_file(self, path: str) -> ToolResult:
+        """Delete a file.
+        
+        Args:
+            path: File path
+            
+        Returns:
+            ToolResult with success status
+        """
+        if not path:
+            return ToolResult(success=False, error="Path is required")
+        
+        if not os.path.exists(path):
+            return ToolResult(success=False, error=f"File not found: {path}")
+        
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                return ToolResult(
+                    success=True,
+                    data={"message": f"File deleted successfully: {path}"}
+                )
+            else:
+                return ToolResult(
+                    success=False,
+                    error=f"Path is not a file: {path}"
+                )
+        except Exception as e:
+            return ToolResult(success=False, error=f"Error deleting file: {e}")
+    
+    async def _create_directory(self, path: str) -> ToolResult:
+        """Create a directory.
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            ToolResult with success status
+        """
+        if not path:
+            return ToolResult(success=False, error="Path is required")
+        
+        try:
+            Path(path).mkdir(parents=True, exist_ok=True)
+            return ToolResult(
+                success=True,
+                data={"message": f"Directory created successfully: {path}"}
+            )
+        except Exception as e:
+            return ToolResult(success=False, error=f"Error creating directory: {e}")
+    
+    async def _file_exists(self, path: str) -> ToolResult:
+        """Check if a file or directory exists.
+        
+        Args:
+            path: File or directory path
+            
+        Returns:
+            ToolResult with existence status
+        """
+        if not path:
+            return ToolResult(success=False, error="Path is required")
+        
+        exists = os.path.exists(path)
+        is_file = os.path.isfile(path) if exists else False
+        is_dir = os.path.isdir(path) if exists else False
+        
+        return ToolResult(
+            success=True,
+            data={
+                "exists": exists,
+                "is_file": is_file,
+                "is_directory": is_dir,
+                "path": path
+            }
+        )

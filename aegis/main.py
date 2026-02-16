@@ -270,6 +270,157 @@ def tools() -> None:
     console.print(table)
 
 
+@app.command()
+def doctor() -> None:
+    """Run health checks on the Aegis-CLI installation."""
+    asyncio.run(_run_doctor())
+
+
+async def _run_doctor() -> None:
+    """Run health checks asynchronously."""
+    console.print("\n[bold cyan]Aegis-CLI Health Check[/bold cyan]\n")
+    
+    checks = []
+    
+    # Check Python version
+    import sys
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    python_ok = sys.version_info >= (3, 11)
+    checks.append(("Python Version", f"{python_version}", python_ok))
+    
+    # Check dependencies
+    try:
+        import pydantic_ai
+        checks.append(("PydanticAI", "Installed", True))
+    except ImportError:
+        checks.append(("PydanticAI", "Not installed", False))
+    
+    try:
+        import anthropic
+        checks.append(("Anthropic SDK", "Installed", True))
+    except ImportError:
+        checks.append(("Anthropic SDK", "Not installed", False))
+    
+    # Check for API keys
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    checks.append(("Anthropic API Key", "Configured" if anthropic_key else "Not configured", bool(anthropic_key)))
+    
+    google_key = os.getenv("GOOGLE_API_KEY")
+    checks.append(("Google API Key", "Configured" if google_key else "Not configured", bool(google_key)))
+    
+    # Check database
+    db_path = Path(".aegis/session.db")
+    checks.append(("Database", "Exists" if db_path.exists() else "Not initialized", True))
+    
+    # Check logs directory
+    logs_path = Path(".aegis/logs")
+    checks.append(("Logs Directory", "Exists" if logs_path.exists() else "Not created", True))
+    
+    # Check tools
+    registry = get_registry()
+    tool_count = len(registry.list_available_tools())
+    checks.append(("Available Tools", str(tool_count), tool_count > 0))
+    
+    # Display results
+    table = Table()
+    table.add_column("Component", style="cyan")
+    table.add_column("Status", style="white")
+    table.add_column("Result", style="white")
+    
+    all_critical_ok = True
+    for name, status, ok in checks:
+        status_icon = "[green]✓[/green]" if ok else "[red]✗[/red]"
+        table.add_row(name, status, status_icon)
+        
+        # Critical checks
+        if name in ["Python Version", "Available Tools"] and not ok:
+            all_critical_ok = False
+    
+    console.print(table)
+    
+    if all_critical_ok:
+        console.print("\n[bold green]✓ All critical checks passed![/bold green]\n")
+    else:
+        console.print("\n[bold red]✗ Some critical checks failed. Please review.[/bold red]\n")
+    
+    # Recommendations
+    if not anthropic_key and not google_key:
+        console.print("[yellow]Recommendation:[/yellow] Configure at least one LLM provider API key")
+        console.print("  Set ANTHROPIC_API_KEY or GOOGLE_API_KEY in your .env file\n")
+
+
+@app.command()
+def validate() -> None:
+    """Validate configuration and environment setup."""
+    asyncio.run(_validate_config())
+
+
+async def _validate_config() -> None:
+    """Validate configuration asynchronously."""
+    console.print("\n[bold cyan]Configuration Validation[/bold cyan]\n")
+    
+    issues = []
+    warnings = []
+    
+    # Check .env file
+    env_file = Path(".env")
+    if not env_file.exists():
+        warnings.append("No .env file found. Copy .env.example to .env and configure.")
+    
+    # Check LLM providers
+    has_provider = False
+    
+    if os.getenv("ANTHROPIC_API_KEY"):
+        has_provider = True
+        console.print("[green]✓[/green] Anthropic API key configured")
+    else:
+        console.print("[yellow]○[/yellow] Anthropic API key not configured")
+    
+    if os.getenv("GOOGLE_API_KEY"):
+        has_provider = True
+        console.print("[green]✓[/green] Google API key configured")
+    else:
+        console.print("[yellow]○[/yellow] Google API key not configured")
+    
+    if os.getenv("OLLAMA_MODEL"):
+        has_provider = True
+        console.print("[green]✓[/green] Ollama model configured")
+    else:
+        console.print("[yellow]○[/yellow] Ollama model not configured")
+    
+    if not has_provider:
+        issues.append("No LLM provider configured. Set at least one API key or model.")
+    
+    # Check directories
+    aegis_dir = Path(".aegis")
+    if not aegis_dir.exists():
+        console.print("[yellow]○[/yellow] .aegis directory will be created on first run")
+    else:
+        console.print("[green]✓[/green] .aegis directory exists")
+    
+    # Check tool registry
+    registry = get_registry()
+    tool_count = len(registry.list_available_tools())
+    console.print(f"[green]✓[/green] {tool_count} tools available")
+    
+    # Summary
+    console.print()
+    if issues:
+        console.print("[bold red]Issues found:[/bold red]")
+        for issue in issues:
+            console.print(f"  [red]✗[/red] {issue}")
+    
+    if warnings:
+        console.print("[bold yellow]Warnings:[/bold yellow]")
+        for warning in warnings:
+            console.print(f"  [yellow]![/yellow] {warning}")
+    
+    if not issues:
+        console.print("[bold green]✓ Configuration is valid![/bold green]\n")
+    else:
+        console.print("\n[bold red]✗ Please fix the issues above before running tasks.[/bold red]\n")
+
+
 @app.callback()
 def callback() -> None:
     """Aegis-CLI: A modular, self-correcting multi-agent framework."""
