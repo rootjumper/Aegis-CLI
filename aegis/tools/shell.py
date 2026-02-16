@@ -29,7 +29,10 @@ class SafeShell(Tool):
     SAFE_COMMANDS = [
         "git", "pytest", "pip", "uv", "mypy", "pylint",
         "python", "python3", "ls", "cat", "grep", "find",
-        "echo", "pwd", "which", "env"
+        "echo", "pwd", "which", "env", "black", "ruff",
+        "npm", "node", "yarn", "pnpm", "make", "cmake",
+        "cargo", "go", "rustc", "tsc", "eslint", "prettier",
+        "docker", "kubectl", "terraform", "ansible"
     ]
     
     def __init__(self) -> None:
