@@ -172,7 +172,9 @@ class LLMResponseParser:
             Content with thinking tags removed
         """
         for tag in self.THINKING_TAGS:
-            pattern = f'<{tag}>.*?</{tag}>'
+            # Escape tag to prevent regex injection
+            escaped_tag = re.escape(tag)
+            pattern = f'<{escaped_tag}>.*?</{escaped_tag}>'
             content = re.sub(pattern, '', content, flags=re.DOTALL | re.IGNORECASE)
         return content.strip()
     
