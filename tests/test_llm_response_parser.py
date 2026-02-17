@@ -7,6 +7,7 @@ Tests parsing of responses from all providers:
 - Thinking models (O1, Qwen-Thinking)
 """
 
+import json
 import pytest
 from aegis.core.llm_response_parser import LLMResponseParser, ParsingError
 
@@ -805,3 +806,48 @@ class TestLogFailuresOption:
         
         parser2 = LLMResponseParser(log_failures=False)
         assert parser2.log_failures is False
+
+
+class TestMalformedJSONRepair:
+    """Test malformed JSON repair strategies in detail."""
+    
+    def test_repair_missing_closing_bracket(self):
+        """Test repair of missing closing bracket."""
+        parser = LLMResponseParser()
+        
+        malformed = '{"code":"def bar(): pass"'
+        repaired = parser._repair_json(malformed)
+        
+        # Should add closing bracket
+        assert repaired.count('{') == repaired.count('}')
+        
+        # Should be parseable
+        try:
+            json.loads(repaired)
+            parsed = True
+        except json.JSONDecodeError:
+            parsed = False
+        assert parsed
+    
+    def test_repair_trailing_garbage(self):
+        """Test removal of trailing garbage."""
+        parser = LLMResponseParser()
+        
+        malformed = '{"code":"def foo(): pass"}xyz123'
+        repaired = parser._repair_json(malformed)
+        
+        # Should remove trailing garbage
+        assert repaired.endswith('}')
+        assert 'xyz123' not in repaired
+    
+    def test_extract_from_severely_malformed_json(self):
+        """Test extraction from severely malformed JSON using regex fallback."""
+        parser = LLMResponseParser()
+        
+        # JSON with issues that can't be easily repaired
+        malformed = '{"code":"def hello():\\n    print(\\"Hi\\")"'
+        code = parser._extract_code_from_json_string(malformed)
+        
+        # Should extract code using regex fallback
+        assert 'def hello():' in code
+        assert 'print' in code

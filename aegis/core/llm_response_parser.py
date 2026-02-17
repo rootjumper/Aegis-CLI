@@ -278,6 +278,11 @@ class LLMResponseParser:
                 pass
         
         # Strategy 3: Regex extraction as last resort
+        # Note: This pattern handles simple cases but may fail with:
+        # - Deeply nested quotes or escape sequences
+        # - JSON strings containing regex special characters
+        # - Complex multi-line string values
+        # It's a last-resort fallback when JSON is severely malformed
         for param_name in self.CODE_PARAM_NAMES:
             pattern = rf'"{param_name}"\s*:\s*"((?:[^"\\]|\\.)*)"'
             match = re.search(pattern, json_str, re.DOTALL)
@@ -295,20 +300,21 @@ class LLMResponseParser:
         Repair common JSON malformations from LLMs.
         
         Handles:
-        - Unescaped quotes in strings
         - Missing closing brackets
         - Trailing garbage
+        
+        Note: Escaping unescaped quotes is extremely complex as it requires
+        understanding JSON structure. Since this is a fallback, we rely on
+        regex extraction (Strategy 3) for cases with quote issues.
         """
-        # Fix 1: Escape unescaped quotes (simplified approach)
-        # This is tricky - we'll try to fix the most common case
         repaired = json_str
         
-        # Fix 2: Remove trailing garbage after last }
+        # Fix 1: Remove trailing garbage after last }
         last_brace = repaired.rfind('}')
         if last_brace > 0:
             repaired = repaired[:last_brace + 1]
         
-        # Fix 3: Add missing closing bracket if needed
+        # Fix 2: Add missing closing bracket if needed
         open_braces = repaired.count('{')
         close_braces = repaired.count('}')
         if open_braces > close_braces:
@@ -389,10 +395,29 @@ class LLMResponseParser:
         if not code:
             return False
         
-        # Check for unbalanced quotes
-        single_quotes = code.count("'") - code.count("\\'")
-        double_quotes = code.count('"') - code.count('\\"')
-        if single_quotes % 2 != 0 or double_quotes % 2 != 0:
+        # Check for unbalanced quotes using state tracking
+        # This properly handles escaped quotes
+        in_single_quote = False
+        in_double_quote = False
+        i = 0
+        while i < len(code):
+            char = code[i]
+            
+            # Skip escaped characters
+            if char == '\\' and i + 1 < len(code):
+                i += 2
+                continue
+            
+            # Toggle quote states
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+            elif char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+            
+            i += 1
+        
+        # If we're still in a quote, it's unbalanced
+        if in_single_quote or in_double_quote:
             return True
         
         # Check for unbalanced brackets/parens
