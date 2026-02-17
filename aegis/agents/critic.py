@@ -40,7 +40,7 @@ class CriticAgent(BaseAgent):
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:
-        """Process a code review task.
+        """Process a code review task using regex + LLM.
         
         Args:
             task: Task to process
@@ -48,6 +48,9 @@ class CriticAgent(BaseAgent):
         Returns:
             AgentResponse with review results
         """
+        from pydantic_ai import Agent as PydanticAgent
+        from pydantic import BaseModel, Field
+        
         try:
             # Get code to review
             code = task.payload.get("code", "")
@@ -61,44 +64,95 @@ class CriticAgent(BaseAgent):
                     errors=["Missing code in task payload"]
                 )
             
-            # Perform review checks
-            issues = []
-            
-            # Security checks
+            # Phase 1: Quick regex security checks (fast, reliable)
             security_issues = self._check_security(code)
-            issues.extend(security_issues)
             
-            # Basic code quality checks
-            quality_issues = self._check_quality(code)
-            issues.extend(quality_issues)
-            
-            # Type hint checks
-            type_issues = self._check_type_hints(code)
-            issues.extend(type_issues)
-            
-            # Docstring checks
-            doc_issues = self._check_docstrings(code)
-            issues.extend(doc_issues)
-            
-            # Determine status
-            if issues:
-                # Check if any are critical (security)
-                critical = any("security" in issue.lower() or "dangerous" in issue.lower() 
-                             for issue in issues)
-                
-                status = "FAIL" if critical or len(issues) > 5 else "RETRY"
-                
+            # If critical security issues found, fail immediately
+            if security_issues:
                 return AgentResponse(
-                    status=status,
-                    data={"issues": issues},
-                    reasoning_trace=f"Found {len(issues)} issues in code review",
-                    errors=issues
+                    status="FAIL",
+                    data={"issues": security_issues},
+                    reasoning_trace=f"Critical security issues found: {len(security_issues)}",
+                    errors=security_issues
                 )
             
-            # No issues found
+            # Phase 2: LLM-based quality review
+            class CodeReview(BaseModel):
+                """Structured code review result."""
+                issues: list[str] = Field(
+                    description="List of specific issues found in the code"
+                )
+                severity: str = Field(
+                    description="Overall severity: critical, moderate, minor, or none"
+                )
+                suggestions: list[str] = Field(
+                    description="Suggested improvements"
+                )
+            
+            # Get model
+            model = self.get_model()
+            
+            # Create PydanticAI agent for quality review
+            pydantic_agent = PydanticAgent(
+                model=model,
+                result_type=CodeReview,
+                system_prompt=self.get_system_prompt()
+            )
+            
+            # Build review prompt
+            review_prompt = f"""Review this Python code for quality and best practices:
+
+```python
+{code}
+```
+
+Check for:
+- PEP8 compliance and code style
+- Type hint completeness (all functions should have type hints)
+- Error handling (proper exceptions, no bare except)
+- Documentation quality (docstrings for public functions)
+- Logic soundness and potential bugs
+- Performance issues or inefficiencies
+
+Return:
+- "issues": Specific problems found (empty list if none)
+- "severity": "critical" (must fix), "moderate" (should fix), "minor" (nice to have), or "none"
+- "suggestions": Actionable improvement recommendations"""
+            
+            # Run LLM review
+            result = await pydantic_agent.run(review_prompt)
+            review = result.data
+            
+            # Combine basic quality checks with LLM review
+            basic_issues = []
+            basic_issues.extend(self._check_quality(code))
+            basic_issues.extend(self._check_type_hints(code))
+            basic_issues.extend(self._check_docstrings(code))
+            
+            # Merge issues
+            all_issues = basic_issues + review.issues
+            
+            # Determine final status based on severity
+            if review.severity in ["critical", "moderate"] or len(all_issues) > 5:
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "issues": all_issues,
+                        "suggestions": review.suggestions,
+                        "severity": review.severity
+                    },
+                    reasoning_trace=f"Quality review failed: {review.severity} severity, {len(all_issues)} issues",
+                    errors=all_issues
+                )
+            
+            # Code passed review
             return AgentResponse(
                 status="SUCCESS",
-                data={"message": "Code passed all review checks"},
+                data={
+                    "message": "Code passed review",
+                    "suggestions": review.suggestions,
+                    "minor_issues": all_issues if all_issues else []
+                },
                 reasoning_trace="Code review completed successfully"
             )
         

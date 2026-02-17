@@ -160,12 +160,17 @@ async def _execute_with_verification(
     Returns:
         True if verification succeeded, False otherwise
     """
+    from aegis.core.llm_config import get_default_model
+    
     logger.log_info("Starting verification cycle", agent="VerificationCycle")
     
-    # Initialize agents for verification cycle
-    coder = CoderAgent()
-    tester = TesterAgent()
-    critic = CriticAgent()
+    # Get default model
+    model = get_default_model()
+    
+    # Initialize agents for verification cycle with model
+    coder = CoderAgent(model=model)
+    tester = TesterAgent(model=model)
+    critic = CriticAgent(model=model)
     
     # Create verification cycle
     verification = VerificationCycle(
@@ -226,7 +231,12 @@ async def _execute_with_agent(
     Returns:
         True if task succeeded, False otherwise
     """
-    # Map task types to agents
+    from aegis.core.llm_config import get_default_model
+    
+    # Get default model
+    model = get_default_model()
+    
+    # Map task types to agent classes
     agent_map = {
         "code": CoderAgent,
         "test": TesterAgent,
@@ -235,7 +245,7 @@ async def _execute_with_agent(
     }
     
     agent_class = agent_map.get(task_type, CoderAgent)
-    agent = agent_class()
+    agent = agent_class(model=model)
     
     logger.log_info(f"Executing with {agent.name} agent", agent=agent.name)
     
@@ -348,7 +358,9 @@ async def _run_task(prompt: str, verbose: bool, no_verify: bool) -> None:
         )
         
         # Initialize orchestrator
-        orchestrator = OrchestratorAgent()
+        from aegis.core.llm_config import get_default_model
+        model = get_default_model()
+        orchestrator = OrchestratorAgent(model=model)
         
         # Process task
         logger.log_agent_thought("Orchestrator", "Analyzing prompt and decomposing into tasks")

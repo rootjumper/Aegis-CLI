@@ -32,7 +32,7 @@ class TesterAgent(BaseAgent):
         self.feedback_parser = FeedbackParser()
     
     async def process(self, task: AgentTask) -> AgentResponse:
-        """Process a testing task.
+        """Process a testing task using LLM to generate tests.
         
         Args:
             task: Task to process
@@ -40,6 +40,9 @@ class TesterAgent(BaseAgent):
         Returns:
             AgentResponse with test results
         """
+        from pydantic_ai import Agent as PydanticAgent
+        from aegis.core.tool_bridge import create_toolset_from_registry
+        
         try:
             # Get task details
             code = task.payload.get("code", "")
@@ -56,21 +59,62 @@ class TesterAgent(BaseAgent):
             
             tool_calls = []
             
-            # Generate test if needed
+            # Generate test if needed using LLM
             if not test_path:
-                test_code = self._generate_test(code, file_path)
+                # Get model and tools
+                model = self.get_model()
+                toolset = create_toolset_from_registry(self.registry)
+                
+                # Create PydanticAI agent
+                pydantic_agent = PydanticAgent(
+                    model=model,
+                    tools=toolset,
+                    system_prompt=self.get_system_prompt()
+                )
+                
+                # Build prompt for test generation
+                test_prompt = f"""Generate comprehensive pytest tests for this Python code:
+
+```python
+{code}
+```
+
+Requirements:
+- Cover happy path, edge cases, and error conditions
+- Use pytest fixtures and parametrize where appropriate
+- Include clear docstrings for each test function
+- Test both normal and exceptional behavior
+- Follow pytest best practices
+
+Return ONLY the test code, no explanations."""
+                
+                # Generate tests using LLM
+                result = await pydantic_agent.run(test_prompt)
+                test_code = str(result.data)
+                
+                # Determine test file path
                 test_path = file_path.replace(".py", "_test.py") if file_path else "test_generated.py"
                 
-                # In production, would write test file
-                tool_calls.append(ToolCall(
-                    tool_name="filesystem",
-                    parameters={
-                        "action": "smart_patch",
-                        "path": test_path,
-                        "changes": []
-                    },
-                    success=True
-                ))
+                # Write test file
+                fs_tool = self.registry.get_tool("filesystem")
+                if fs_tool:
+                    write_result = await fs_tool.execute(
+                        action="write_file",
+                        path=test_path,
+                        content=test_code
+                    )
+                    
+                    tool_calls.append(ToolCall(
+                        tool_name="filesystem",
+                        parameters={
+                            "action": "write_file",
+                            "path": test_path,
+                            "content": test_code[:100] + ("..." if len(test_code) > 100 else "")
+                        },
+                        result=write_result.data,
+                        success=write_result.success,
+                        error=write_result.error
+                    ))
             
             # Execute tests
             shell_tool = self.registry.get_tool("shell")
@@ -107,7 +151,7 @@ class TesterAgent(BaseAgent):
             return AgentResponse(
                 status="SUCCESS",
                 data={"message": "All tests passed", "test_path": test_path},
-                reasoning_trace="Test execution completed successfully",
+                reasoning_trace="Test generation and execution completed successfully",
                 tool_calls=tool_calls
             )
         
@@ -118,42 +162,6 @@ class TesterAgent(BaseAgent):
                 reasoning_trace=f"Error during testing: {e}",
                 errors=[str(e)]
             )
-    
-    def _generate_test(self, code: str, file_path: str) -> str:
-        """Generate test code for given code.
-        
-        Args:
-            code: Code to test
-            file_path: Path to code file
-            
-        Returns:
-            Generated test code
-        """
-        # Simple test template
-        # In production, would use LLM to generate comprehensive tests
-        
-        # Extract function names from code
-        import re
-        func_pattern = r"def\s+(\w+)\s*\("
-        functions = re.findall(func_pattern, code)
-        
-        test_code = '''"""Generated tests."""
-
-import pytest
-
-'''
-        
-        for func_name in functions:
-            if not func_name.startswith("_"):
-                test_code += f'''
-def test_{func_name}():
-    """Test {func_name} function."""
-    # TODO: Implement test
-    pass
-
-'''
-        
-        return test_code
     
     async def validate_input(self, task: AgentTask) -> bool:
         """Validate task input.
