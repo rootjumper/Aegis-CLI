@@ -36,3 +36,4 @@ ENV/
 *.db
 *.db-shm
 *.db-wal
+workspaces/
