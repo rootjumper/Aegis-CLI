@@ -265,7 +265,15 @@ async def _execute_with_agent(
                 
                 # Check if we should retry
                 if attempt < max_retries and response.status in ["FAIL", "RETRY"]:
-                    # Update context with feedback for next attempt
+                    # Preserve retry history in context
+                    if "retry_history" not in task.context:
+                        task.context["retry_history"] = []
+                    task.context["retry_history"].append({
+                        "attempt": attempt,
+                        "errors": response.errors,
+                        "status": response.status
+                    })
+                    # Update current errors for next attempt
                     task.context["previous_errors"] = response.errors
                     continue
                 
