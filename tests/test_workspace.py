@@ -207,3 +207,12 @@ def test_workspace_info_no_workspace(temp_workspace_dir: str) -> None:
     assert info["path"] is None
     assert info["files"] == []
     assert info["file_count"] == 0
+
+
+def test_sanitize_name() -> None:
+    """Test name sanitization."""
+    assert WorkspaceManager.sanitize_name("Test Project") == "test_project"
+    assert WorkspaceManager.sanitize_name("My-Cool-App!") == "mycoolapp"
+    assert WorkspaceManager.sanitize_name("Feature_123") == "feature_123"
+    assert WorkspaceManager.sanitize_name("UPPERCASE") == "uppercase"
+    assert WorkspaceManager.sanitize_name("Special@#$Chars") == "specialchars"

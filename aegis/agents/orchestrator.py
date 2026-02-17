@@ -190,8 +190,8 @@ Return a detailed JSON plan."""
         plan_text = self.parser.parse(result, content_type='text')
         
         # Extract JSON from response (might be wrapped in markdown)
-        # Try to find JSON in response
-        json_match = re.search(r'\{.*\}', plan_text, re.DOTALL)
+        # Try to find JSON in response - use non-greedy match to avoid capturing multiple objects
+        json_match = re.search(r'\{.*?\}', plan_text, re.DOTALL)
         if json_match:
             try:
                 plan = json.loads(json_match.group())
@@ -213,8 +213,12 @@ Return a detailed JSON plan."""
         Returns:
             Basic execution plan
         """
+        # Reuse WorkspaceManager's sanitization logic for consistency
+        raw_name = task.payload.get("description", "project")[:50]
+        workspace_name = WorkspaceManager.sanitize_name(raw_name)
+        
         return {
-            "workspace_name": task.payload.get("description", "project").lower().replace(" ", "_")[:50],
+            "workspace_name": workspace_name,
             "use_existing_workspace": False,
             "files_to_create": [
                 {"path": "src/main.py", "purpose": task.payload.get("description")}

@@ -22,6 +22,22 @@ class WorkspaceManager:
         self.base_dir.mkdir(exist_ok=True)
         self.current_workspace: Optional[Path] = None
     
+    @staticmethod
+    def sanitize_name(name: str) -> str:
+        """Sanitize a workspace name for safe filesystem use.
+        
+        Args:
+            name: Raw workspace name
+            
+        Returns:
+            Sanitized name (lowercase, alphanumeric + underscores only)
+        """
+        # Convert to lowercase and replace spaces with underscores
+        safe_name = name.lower().replace(" ", "_")
+        # Keep only alphanumeric characters and underscores
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c == "_")
+        return safe_name
+    
     def create_workspace(self, name: str, overwrite: bool = False) -> Path:
         """Create a new workspace directory.
         
@@ -32,9 +48,8 @@ class WorkspaceManager:
         Returns:
             Path to workspace directory
         """
-        # Sanitize name: remove special chars, lowercase, replace spaces
-        safe_name = name.lower().replace(" ", "_")
-        safe_name = "".join(c for c in safe_name if c.isalnum() or c == "_")
+        # Sanitize the name
+        safe_name = self.sanitize_name(name)
         
         # Add timestamp if workspace exists and overwrite=False
         workspace_path = self.base_dir / safe_name
