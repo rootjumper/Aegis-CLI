@@ -31,7 +31,7 @@ class TesterAgent(BaseAgent):
         super().__init__("tester", model=model)
         self.registry = get_registry()
         self.feedback_parser = FeedbackParser()
-        self.parser = LLMResponseParser(strict=False)
+        self.parser = LLMResponseParser(strict=False, log_failures=True)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a testing task using LLM to generate tests.

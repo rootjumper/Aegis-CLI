@@ -29,7 +29,7 @@ class CoderAgent(BaseAgent):
         """
         super().__init__("coder", model=model)
         self.registry = get_registry()
-        self.parser = LLMResponseParser(strict=False)
+        self.parser = LLMResponseParser(strict=False, log_failures=True)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a code generation task using LLM.
