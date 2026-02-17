@@ -690,6 +690,12 @@ async def _validate_config() -> None:
     else:
         console.print("[yellow]○[/yellow] Ollama model not configured")
     
+    if os.getenv("LM_STUDIO_MODEL"):
+        has_provider = True
+        console.print("[green]✓[/green] LM Studio model configured")
+    else:
+        console.print("[yellow]○[/yellow] LM Studio model not configured")
+    
     if not has_provider:
         issues.append("No LLM provider configured. Set at least one API key or model.")
     
