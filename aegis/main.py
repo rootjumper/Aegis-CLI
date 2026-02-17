@@ -48,7 +48,8 @@ async def _execute_subtasks(
     task_id: str,
     logger,
     state_manager,
-    no_verify: bool
+    no_verify: bool,
+    verbose: bool = False
 ) -> bool:
     """Execute subtasks by delegating to appropriate agents.
     
@@ -58,6 +59,7 @@ async def _execute_subtasks(
         logger: Trace logger
         state_manager: State manager instance
         no_verify: Whether to skip verification cycle
+        verbose: Enable verbose LLM logging
         
     Returns:
         True if all subtasks succeeded, False otherwise
@@ -98,7 +100,8 @@ async def _execute_subtasks(
                 subtask_type, 
                 logger, 
                 state_manager,
-                no_verify
+                no_verify,
+                verbose
             )
             
             if success:
@@ -123,7 +126,8 @@ async def _execute_single_subtask(
     task_type: str,
     logger,
     state_manager,
-    no_verify: bool
+    no_verify: bool,
+    verbose: bool = False
 ) -> bool:
     """Execute a single subtask with appropriate agent.
     
@@ -133,22 +137,24 @@ async def _execute_single_subtask(
         logger: Trace logger
         state_manager: State manager instance
         no_verify: Whether to skip verification cycle
+        verbose: Enable verbose LLM logging
         
     Returns:
         True if task succeeded, False otherwise
     """
     # For code and test tasks, use verification cycle unless disabled
     if task_type in ["code", "test"] and not no_verify:
-        return await _execute_with_verification(task, logger, state_manager)
+        return await _execute_with_verification(task, logger, state_manager, verbose)
     
     # For other tasks or when verification is disabled, execute directly
-    return await _execute_with_agent(task, task_type, logger, state_manager)
+    return await _execute_with_agent(task, task_type, logger, state_manager, verbose)
 
 
 async def _execute_with_verification(
     task: AgentTask,
     logger,
-    state_manager
+    state_manager,
+    verbose: bool = False
 ) -> bool:
     """Execute task through verification cycle.
     
@@ -156,6 +162,7 @@ async def _execute_with_verification(
         task: Task to execute
         logger: Trace logger
         state_manager: State manager instance
+        verbose: Enable verbose LLM logging
         
     Returns:
         True if verification succeeded, False otherwise
@@ -167,9 +174,9 @@ async def _execute_with_verification(
     # Get default model
     model = get_default_model()
     
-    # Initialize agents for verification cycle with model
-    coder = CoderAgent(model=model)
-    tester = TesterAgent(model=model)
+    # Initialize agents for verification cycle with model and verbose flag
+    coder = CoderAgent(model=model, verbose=verbose)
+    tester = TesterAgent(model=model, verbose=verbose)
     critic = CriticAgent(model=model)
     
     # Create verification cycle
@@ -218,7 +225,8 @@ async def _execute_with_agent(
     task: AgentTask,
     task_type: str,
     logger,
-    state_manager
+    state_manager,
+    verbose: bool = False
 ) -> bool:
     """Execute task with appropriate agent directly.
     
@@ -227,6 +235,7 @@ async def _execute_with_agent(
         task_type: Type of task
         logger: Trace logger
         state_manager: State manager instance
+        verbose: Enable verbose LLM logging
         
     Returns:
         True if task succeeded, False otherwise
@@ -245,7 +254,12 @@ async def _execute_with_agent(
     }
     
     agent_class = agent_map.get(task_type, CoderAgent)
-    agent = agent_class(model=model)
+    
+    # Initialize agent with verbose flag if supported
+    if agent_class in [CoderAgent, TesterAgent]:
+        agent = agent_class(model=model, verbose=verbose)
+    else:
+        agent = agent_class(model=model)
     
     logger.log_info(f"Executing with {agent.name} agent", agent=agent.name)
     
@@ -360,7 +374,7 @@ async def _run_task(prompt: str, verbose: bool, no_verify: bool) -> None:
         # Initialize orchestrator
         from aegis.core.llm_config import get_default_model
         model = get_default_model()
-        orchestrator = OrchestratorAgent(model=model)
+        orchestrator = OrchestratorAgent(model=model, verbose=verbose)
         
         # Process task
         logger.log_agent_thought("Orchestrator", "Analyzing prompt and decomposing into tasks")
@@ -382,7 +396,8 @@ async def _run_task(prompt: str, verbose: bool, no_verify: bool) -> None:
                 task_id, 
                 logger, 
                 state_manager,
-                no_verify
+                no_verify,
+                verbose
             )
             
             # Update task status based on execution

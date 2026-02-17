@@ -10,6 +10,7 @@ from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
 from aegis.core.feedback import FeedbackParser
 from aegis.core.llm_response_parser import LLMResponseParser
+from aegis.core.llm_logger import LLMLogger
 
 
 class TesterAgent(BaseAgent):
@@ -22,16 +23,18 @@ class TesterAgent(BaseAgent):
     - Create failure reports for Coder
     """
     
-    def __init__(self, model: Model | None = None) -> None:
+    def __init__(self, model: Model | None = None, verbose: bool = False) -> None:
         """Initialize the tester agent.
         
         Args:
             model: Optional PydanticAI Model to use
+            verbose: Whether to enable verbose LLM logging
         """
         super().__init__("tester", model=model)
         self.registry = get_registry()
         self.feedback_parser = FeedbackParser()
         self.parser = LLMResponseParser(strict=False, log_failures=True)
+        self.llm_logger = LLMLogger(verbose=verbose)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a testing task using LLM to generate tests.
@@ -90,11 +93,29 @@ Requirements:
 
 Return ONLY the test code, no explanations."""
                 
+                # LOG PROMPT
+                interaction_id = self.llm_logger.log_prompt(
+                    agent_name="TesterAgent",
+                    prompt=test_prompt,
+                    model=str(model),
+                    system_prompt=self.get_system_prompt(),
+                    tools=toolset
+                )
+                
                 # Generate tests using LLM
                 result = await pydantic_agent.run(test_prompt)
                 
                 # Extract test code using universal parser
                 test_code = self.parser.parse(result, content_type='code')
+                
+                # LOG RESPONSE
+                self.llm_logger.log_response(
+                    interaction_id=interaction_id,
+                    agent_name="TesterAgent",
+                    response=result,
+                    extracted_content=test_code,
+                    finish_reason="stop"
+                )
                 
                 # Validate the extracted test code
                 is_valid, validation_error = self.parser.validate_code(test_code)
@@ -116,6 +137,16 @@ Return ONLY the test code, no explanations."""
                         action="write_file",
                         path=test_path,
                         content=test_code
+                    )
+                    
+                    # LOG FILE OPERATION
+                    self.llm_logger.log_file_operation(
+                        agent_name="TesterAgent",
+                        operation="write_file",
+                        file_path=test_path,
+                        success=write_result.success,
+                        content_preview=test_code[:200],
+                        error=write_result.error
                     )
                     
                     tool_calls.append(ToolCall(
