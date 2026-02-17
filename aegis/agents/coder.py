@@ -9,6 +9,7 @@ from pydantic_ai.models import Model
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
 from aegis.core.llm_response_parser import LLMResponseParser
+from aegis.core.llm_logger import LLMLogger
 
 
 class CoderAgent(BaseAgent):
@@ -21,15 +22,17 @@ class CoderAgent(BaseAgent):
     - Security best practices
     """
     
-    def __init__(self, model: Model | None = None) -> None:
+    def __init__(self, model: Model | None = None, verbose: bool = False) -> None:
         """Initialize the coder agent.
         
         Args:
             model: Optional PydanticAI Model to use
+            verbose: Whether to enable verbose LLM logging
         """
         super().__init__("coder", model=model)
         self.registry = get_registry()
         self.parser = LLMResponseParser(strict=False, log_failures=True)
+        self.llm_logger = LLMLogger(verbose=verbose)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a code generation task using LLM.
@@ -78,11 +81,29 @@ class CoderAgent(BaseAgent):
                 system_prompt=self.get_system_prompt()
             )
             
+            # LOG PROMPT
+            interaction_id = self.llm_logger.log_prompt(
+                agent_name="CoderAgent",
+                prompt=prompt,
+                model=str(model),
+                system_prompt=self.get_system_prompt(),
+                tools=toolset
+            )
+            
             # Generate code using LLM
             result = await pydantic_agent.run(prompt)
             
             # Extract generated code from response using universal parser
             generated_code = self.parser.parse(result, content_type='code')
+            
+            # LOG RESPONSE
+            self.llm_logger.log_response(
+                interaction_id=interaction_id,
+                agent_name="CoderAgent",
+                response=result,
+                extracted_content=generated_code,
+                finish_reason="stop"
+            )
             
             # Validate the extracted code
             is_valid, validation_error = self.parser.validate_code(generated_code)
@@ -114,6 +135,16 @@ class CoderAgent(BaseAgent):
                         action="write_file",
                         path=file_path,
                         content=generated_code
+                    )
+                    
+                    # LOG FILE OPERATION
+                    self.llm_logger.log_file_operation(
+                        agent_name="CoderAgent",
+                        operation="write_file",
+                        file_path=file_path,
+                        success=write_result.success,
+                        content_preview=generated_code[:200],
+                        error=write_result.error
                     )
                     
                     tool_calls.append(ToolCall(

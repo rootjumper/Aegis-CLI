@@ -20,6 +20,7 @@ from aegis.core.mcp_client import load_mcp_config, filter_servers_by_name
 from aegis.core.workspace import WorkspaceManager
 from aegis.core.llm_response_parser import LLMResponseParser
 from aegis.tools.registry import get_registry
+from aegis.core.llm_logger import LLMLogger
 
 
 class OrchestratorAgent(BaseAgent):
@@ -32,13 +33,15 @@ class OrchestratorAgent(BaseAgent):
     def __init__(
         self,
         mcp_config_path: str | Path | None = None,
-        model: Model | None = None
+        model: Model | None = None,
+        verbose: bool = False
     ) -> None:
         """Initialize the orchestrator agent.
         
         Args:
             mcp_config_path: Optional path to MCP configuration file
             model: Optional PydanticAI Model to use
+            verbose: Whether to enable verbose LLM logging
         """
         super().__init__("orchestrator", model=model)
         self.registry = get_registry()
@@ -46,6 +49,7 @@ class OrchestratorAgent(BaseAgent):
         self.parser = LLMResponseParser(strict=False, log_failures=True)
         self.mcp_config_path = mcp_config_path
         self._mcp_servers: list[MCPServerConfig] = []
+        self.llm_logger = LLMLogger(verbose=verbose)
         
         # Load MCP config if available
         if mcp_config_path:
@@ -117,6 +121,62 @@ class OrchestratorAgent(BaseAgent):
         
         return context
     
+    def _generate_workspace_name(self, description: str) -> str:
+        """Generate a smart workspace name from task description.
+        
+        Args:
+            description: Task description
+            
+        Returns:
+            Sanitized workspace name
+        
+        Examples:
+            "Create a Product model" → "product_model"
+            "Build REST API for users" → "users_rest_api"
+            "HTML calculator app" → "html_calculator_app"
+            "Implement authentication system" → "authentication_system"
+        """
+        # Convert to lowercase
+        name = description.lower()
+        
+        # Remove common filler words
+        filler_words = [
+            'create', 'build', 'make', 'generate', 'implement', 'develop',
+            'add', 'write', 'a', 'an', 'the', 'for', 'with', 'using',
+            'me', 'please', 'can', 'you', 'could', 'would', 'should'
+        ]
+        
+        words = name.split()
+        meaningful_words = [w for w in words if w not in filler_words]
+        
+        # If we removed too much, keep first 3-4 words
+        if len(meaningful_words) < 2:
+            meaningful_words = words[:4]
+        
+        # Join with underscores
+        name = '_'.join(meaningful_words)
+        
+        # Remove special characters, keep only alphanumeric and underscores
+        name = ''.join(c if c.isalnum() or c == '_' else '_' for c in name)
+        
+        # Remove consecutive underscores
+        while '__' in name:
+            name = name.replace('__', '_')
+        
+        # Trim underscores from start/end
+        name = name.strip('_')
+        
+        # Limit length
+        if len(name) > 50:
+            name = name[:50].rsplit('_', 1)[0]  # Cut at word boundary
+        
+        # Fallback if empty
+        if not name:
+            from datetime import datetime
+            name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        return name
+    
     async def _create_execution_plan(
         self,
         task: AgentTask,
@@ -138,6 +198,16 @@ class OrchestratorAgent(BaseAgent):
 
 REQUEST: {task.payload.get('description', '')}
 
+WORKSPACE NAMING:
+- Choose a descriptive name based on the feature/component being created
+- Use snake_case (lowercase with underscores)
+- Be specific: "product_model" not "project", "users_rest_api" not "api"
+- Max 50 characters
+- Examples:
+  * "Create a Product model" → "product_model"
+  * "Build authentication system" → "authentication_system"
+  * "HTML calculator app" → "html_calculator_app"
+
 WORKSPACE CONTEXT:
 - Current workspace: {context['workspace'].get('name', 'None')}
 - Existing files: {len(context['workspace'].get('files', []))}
@@ -148,14 +218,14 @@ TASK:
 1. Use filesystem tools to check what exists
 2. Use context tools to understand existing patterns
 3. Return a JSON plan with:
-   - workspace_name: Name for workspace (new or existing)
+   - workspace_name: Name for workspace (new or existing) - NOT "project"!
    - files_to_create: List of files with paths and purposes
    - files_to_modify: List of existing files to update
    - dependencies: Order of file creation
 
 RESPOND WITH JSON:
 {{
-    "workspace_name": "feature_name",
+    "workspace_name": "descriptive_feature_name",
     "use_existing_workspace": false,
     "files_to_create": [
         {{"path": "src/models/product.py", "purpose": "Product model class"}},
@@ -184,10 +254,28 @@ Use tools to:
 Return a detailed JSON plan."""
         )
         
+        # LOG PROMPT
+        interaction_id = self.llm_logger.log_prompt(
+            agent_name="OrchestratorAgent (Planning)",
+            prompt=planning_prompt,
+            model=str(self.get_model()),
+            system_prompt=planning_agent.system_prompt,
+            tools=toolset
+        )
+        
         result = await planning_agent.run(planning_prompt)
         
         # Parse the plan from response
         plan_text = self.parser.parse(result, content_type='text')
+        
+        # LOG RESPONSE
+        self.llm_logger.log_response(
+            interaction_id=interaction_id,
+            agent_name="OrchestratorAgent (Planning)",
+            response=result,
+            extracted_content=plan_text,
+            finish_reason="stop"
+        )
         
         # Extract JSON from response (might be wrapped in markdown)
         # Try to find JSON in response - use non-greedy match to avoid capturing multiple objects
@@ -201,6 +289,19 @@ Return a detailed JSON plan."""
         else:
             # Fallback: create basic plan
             plan = self._create_fallback_plan(task)
+        
+        # Apply smart workspace naming if LLM gave generic name
+        if 'workspace_name' in plan:
+            if plan['workspace_name'] in ['project', 'default', 'workspace', 'feature_name']:
+                # LLM gave generic name, generate better one
+                plan['workspace_name'] = self._generate_workspace_name(
+                    task.payload.get('description', '')
+                )
+        else:
+            # No workspace name in plan, generate one
+            plan['workspace_name'] = self._generate_workspace_name(
+                task.payload.get('description', '')
+            )
         
         return plan
     
@@ -256,7 +357,7 @@ Return a detailed JSON plan."""
             
             # PHASE 3: CODE GENERATION (delegate to CoderAgent with context)
             from aegis.agents.coder import CoderAgent
-            coder = CoderAgent(model=self.get_model())
+            coder = CoderAgent(model=self.get_model(), verbose=self.llm_logger.verbose)
             
             generated_files = []
             
