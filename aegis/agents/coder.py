@@ -8,6 +8,7 @@ from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
+from aegis.core.llm_response_parser import LLMResponseParser
 
 
 class CoderAgent(BaseAgent):
@@ -28,6 +29,7 @@ class CoderAgent(BaseAgent):
         """
         super().__init__("coder", model=model)
         self.registry = get_registry()
+        self.parser = LLMResponseParser(strict=False)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a code generation task using LLM.
@@ -79,9 +81,18 @@ class CoderAgent(BaseAgent):
             # Generate code using LLM
             result = await pydantic_agent.run(prompt)
             
-            # Extract generated code from response
-            # The LLM should return the code as text
-            generated_code = str(result.data)
+            # Extract generated code from response using universal parser
+            generated_code = self.parser.parse(result, content_type='code')
+            
+            # Validate the extracted code
+            is_valid, validation_error = self.parser.validate_code(generated_code)
+            if not is_valid:
+                return AgentResponse(
+                    status="FAIL",
+                    data={},
+                    reasoning_trace=f"Generated code has syntax errors: {validation_error}",
+                    errors=[f"Invalid Python code: {validation_error}"]
+                )
             
             # Build reasoning trace
             reasoning = f"Generated code for: {description}"
