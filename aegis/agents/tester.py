@@ -109,7 +109,7 @@ Return ONLY the test code, no explanations."""
                         parameters={
                             "action": "write_file",
                             "path": test_path,
-                            "content": test_code[:100] + "..."  # Truncate for logging
+                            "content": test_code[:100] + ("..." if len(test_code) > 100 else "")
                         },
                         result=write_result.data,
                         success=write_result.success,

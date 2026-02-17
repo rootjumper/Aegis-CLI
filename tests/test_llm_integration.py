@@ -104,11 +104,11 @@ def test_agents_have_required_tools():
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_fallback_decomposition():
-    """Test orchestrator fallback decomposition when LLM fails."""
+async def test_orchestrator_decomposition():
+    """Test orchestrator can decompose tasks (using LLM or fallback)."""
     orchestrator = OrchestratorAgent()
     
-    # Even without LLM, should fall back to keyword matching
+    # The orchestrator will use LLM if available, otherwise falls back to keyword matching
     tasks = await orchestrator.decompose_prompt("Create a hello world function")
     
     # Should return at least one task

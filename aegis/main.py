@@ -236,16 +236,16 @@ async def _execute_with_agent(
     # Get default model
     model = get_default_model()
     
-    # Map task types to agents
+    # Map task types to agent classes
     agent_map = {
-        "code": lambda: CoderAgent(model=model),
-        "test": lambda: TesterAgent(model=model),
-        "review": lambda: CriticAgent(model=model),
-        "documentation": lambda: JanitorAgent(model=model),
+        "code": CoderAgent,
+        "test": TesterAgent,
+        "review": CriticAgent,
+        "documentation": JanitorAgent,
     }
     
-    agent_factory = agent_map.get(task_type, lambda: CoderAgent(model=model))
-    agent = agent_factory()
+    agent_class = agent_map.get(task_type, CoderAgent)
+    agent = agent_class(model=model)
     
     logger.log_info(f"Executing with {agent.name} agent", agent=agent.name)
     

@@ -110,7 +110,7 @@ class CoderAgent(BaseAgent):
                         parameters={
                             "action": "write_file",
                             "path": file_path,
-                            "content": generated_code[:100] + "..."  # Truncate for logging
+                            "content": generated_code[:100] + ("..." if len(generated_code) > 100 else "")
                         },
                         result=write_result.data,
                         success=write_result.success,

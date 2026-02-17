@@ -89,7 +89,7 @@ class JanitorAgent(BaseAgent):
 ```
 
 **Changes to document:**
-{chr(10).join(f"- {c}" for c in changes)}
+{'\n'.join(f"- {c}" for c in changes)}
 
 **Instructions:**
 - Maintain existing structure and formatting
@@ -104,7 +104,7 @@ Return the complete updated README content."""
                 update_prompt = f"""Update docstrings in Python code to match changes:
 
 **Changes:**
-{chr(10).join(f"- {c}" for c in changes)}
+{'\n'.join(f"- {c}" for c in changes)}
 
 Generate updated docstrings in Google style format with:
 - Brief description
@@ -123,7 +123,7 @@ Return the updated docstring content."""
 ```
 
 **Changes:**
-{chr(10).join(f"- {c}" for c in changes)}
+{'\n'.join(f"- {c}" for c in changes)}
 
 Return the updated documentation."""
             
@@ -144,7 +144,7 @@ Return the updated documentation."""
                     parameters={
                         "action": "write_file",
                         "path": target_file,
-                        "content": updated_content[:100] + "..."  # Truncate for logging
+                        "content": updated_content[:100] + ("..." if len(updated_content) > 100 else "")
                     },
                     result=write_result.data,
                     success=write_result.success,
