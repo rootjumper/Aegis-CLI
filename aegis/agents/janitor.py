@@ -30,7 +30,7 @@ class JanitorAgent(BaseAgent):
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:
-        """Process a documentation task.
+        """Process a documentation task using LLM.
         
         Args:
             task: Task to process
@@ -38,38 +38,123 @@ class JanitorAgent(BaseAgent):
         Returns:
             AgentResponse with documentation results
         """
+        from pydantic_ai import Agent as PydanticAgent
+        from aegis.core.tool_bridge import create_toolset_from_registry
+        
         try:
             # Get task details
             doc_type = task.payload.get("doc_type", "general")
             target_file = task.payload.get("target_file", "README.md")
             changes = task.payload.get("changes", [])
             
+            # Get model and tools
+            model = self.get_model()
+            toolset = create_toolset_from_registry(self.registry)
+            
+            # Create PydanticAI agent
+            pydantic_agent = PydanticAgent(
+                model=model,
+                tools=toolset,
+                system_prompt=self.get_system_prompt()
+            )
+            
             tool_calls = []
             
+            # Read current documentation if it exists
+            fs_tool = self.registry.get_tool("filesystem")
+            current_content = ""
+            
+            if fs_tool:
+                read_result = await fs_tool.execute(
+                    action="read_file",
+                    path=target_file
+                )
+                
+                if read_result.success:
+                    current_content = read_result.data.get("content", "")
+                    tool_calls.append(ToolCall(
+                        tool_name="filesystem",
+                        parameters={"action": "read_file", "path": target_file},
+                        result=read_result.data,
+                        success=True
+                    ))
+            
+            # Build update prompt based on doc type
             if doc_type == "readme":
-                # Update README
-                result = await self._update_readme(target_file, changes)
-                tool_calls.extend(result.get("tool_calls", []))
-                
+                update_prompt = f"""Update this README file with new information:
+
+**Current README:**
+```markdown
+{current_content if current_content else "# New Project\n\nNo existing README."}
+```
+
+**Changes to document:**
+{chr(10).join(f"- {c}" for c in changes)}
+
+**Instructions:**
+- Maintain existing structure and formatting
+- Update relevant sections with new information
+- Add new sections if needed
+- Keep formatting consistent (markdown)
+- Preserve all existing content unless it conflicts with updates
+
+Return the complete updated README content."""
+
             elif doc_type == "docstring":
-                # Update docstrings
-                result = await self._update_docstrings(changes)
-                tool_calls.extend(result.get("tool_calls", []))
+                update_prompt = f"""Update docstrings in Python code to match changes:
+
+**Changes:**
+{chr(10).join(f"- {c}" for c in changes)}
+
+Generate updated docstrings in Google style format with:
+- Brief description
+- Args section
+- Returns section
+- Raises section (if applicable)
+
+Return the updated docstring content."""
+
+            else:  # general documentation
+                update_prompt = f"""Update documentation for: {target_file}
+
+**Current content:**
+```
+{current_content if current_content else "New file"}
+```
+
+**Changes:**
+{chr(10).join(f"- {c}" for c in changes)}
+
+Return the updated documentation."""
+            
+            # Generate updated documentation
+            result = await pydantic_agent.run(update_prompt)
+            updated_content = str(result.data)
+            
+            # Write updated documentation
+            if fs_tool:
+                write_result = await fs_tool.execute(
+                    action="write_file",
+                    path=target_file,
+                    content=updated_content
+                )
                 
-            elif doc_type == "api":
-                # Generate API docs
-                result = await self._generate_api_docs()
-                tool_calls.extend(result.get("tool_calls", []))
-                
-            elif doc_type == "cleanup":
-                # Clean up code
-                result = await self._cleanup_code(changes)
-                tool_calls.extend(result.get("tool_calls", []))
+                tool_calls.append(ToolCall(
+                    tool_name="filesystem",
+                    parameters={
+                        "action": "write_file",
+                        "path": target_file,
+                        "content": updated_content[:100] + "..."  # Truncate for logging
+                    },
+                    result=write_result.data,
+                    success=write_result.success,
+                    error=write_result.error
+                ))
             
             return AgentResponse(
                 status="SUCCESS",
-                data={"message": f"Documentation updated: {doc_type}"},
-                reasoning_trace=f"Completed {doc_type} documentation task",
+                data={"message": f"Updated {doc_type} documentation", "file": target_file},
+                reasoning_trace=f"Documentation file {target_file} updated successfully",
                 tool_calls=tool_calls
             )
         
@@ -80,115 +165,6 @@ class JanitorAgent(BaseAgent):
                 reasoning_trace=f"Error updating documentation: {e}",
                 errors=[str(e)]
             )
-    
-    async def _update_readme(
-        self,
-        readme_path: str,
-        changes: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Update README with new features.
-        
-        Args:
-            readme_path: Path to README file
-            changes: List of changes to document
-            
-        Returns:
-            Result dictionary
-        """
-        # In production, would read README, analyze structure, and add sections
-        
-        tool_calls = [
-            ToolCall(
-                tool_name="filesystem",
-                parameters={
-                    "action": "read_file",
-                    "path": readme_path
-                },
-                success=True
-            )
-        ]
-        
-        return {"tool_calls": tool_calls}
-    
-    async def _update_docstrings(
-        self,
-        changes: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Update docstrings to match code changes.
-        
-        Args:
-            changes: List of code changes
-            
-        Returns:
-            Result dictionary
-        """
-        # In production, would analyze function signatures and update docstrings
-        
-        tool_calls = []
-        
-        for change in changes:
-            file_path = change.get("file_path", "")
-            if file_path:
-                tool_calls.append(ToolCall(
-                    tool_name="filesystem",
-                    parameters={
-                        "action": "smart_patch",
-                        "path": file_path,
-                        "changes": []
-                    },
-                    success=True
-                ))
-        
-        return {"tool_calls": tool_calls}
-    
-    async def _generate_api_docs(self) -> dict[str, Any]:
-        """Generate API documentation.
-        
-        Returns:
-            Result dictionary
-        """
-        # In production, would use tools like sphinx or pdoc
-        
-        tool_calls = [
-            ToolCall(
-                tool_name="shell",
-                parameters={
-                    "command": ["python", "-m", "pydoc", "-w", "aegis"]
-                },
-                success=True
-            )
-        ]
-        
-        return {"tool_calls": tool_calls}
-    
-    async def _cleanup_code(
-        self,
-        files: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Clean up unused imports and format code.
-        
-        Args:
-            files: List of files to clean
-            
-        Returns:
-            Result dictionary
-        """
-        # In production, would use tools like autoflake, isort
-        
-        tool_calls = []
-        
-        for file_info in files:
-            file_path = file_info.get("path", "")
-            if file_path:
-                tool_calls.append(ToolCall(
-                    tool_name="shell",
-                    parameters={
-                        "command": ["python", "-m", "isort", file_path]
-                    },
-                    success=True
-                ))
-        
-        return {"tool_calls": tool_calls}
     
     async def validate_input(self, task: AgentTask) -> bool:
         """Validate task input.

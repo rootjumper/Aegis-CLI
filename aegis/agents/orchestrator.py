@@ -113,7 +113,7 @@ class OrchestratorAgent(BaseAgent):
             )
     
     async def decompose_prompt(self, prompt: str) -> list[dict[str, Any]]:
-        """Decompose a user prompt into structured tasks.
+        """Decompose a user prompt into structured tasks using LLM.
         
         Args:
             prompt: User prompt
@@ -121,47 +121,95 @@ class OrchestratorAgent(BaseAgent):
         Returns:
             List of task dictionaries
         """
-        # Simple keyword-based decomposition
-        # In production, would use LLM for intelligent analysis
+        from pydantic import BaseModel, Field
         
-        tasks = []
+        # Define output structure for LLM
+        class TaskDecomposition(BaseModel):
+            """Structured task decomposition from user prompt."""
+            tasks: list[dict[str, Any]] = Field(
+                description="List of tasks with type, description, and priority"
+            )
+            reasoning: str = Field(
+                description="Explanation of task breakdown"
+            )
         
-        # Check for code-related keywords
-        code_keywords = ["create", "implement", "generate", "write", "code", "function"]
-        if any(keyword in prompt.lower() for keyword in code_keywords):
-            tasks.append({
-                "type": "code",
-                "description": f"Generate code: {prompt}",
-                "priority": 1
-            })
-        
-        # Check for test-related keywords
-        test_keywords = ["test", "verify", "validate"]
-        if any(keyword in prompt.lower() for keyword in test_keywords):
-            tasks.append({
-                "type": "test",
-                "description": f"Create tests: {prompt}",
-                "priority": 2
-            })
-        
-        # Check for documentation keywords
-        doc_keywords = ["document", "readme", "docs", "documentation"]
-        if any(keyword in prompt.lower() for keyword in doc_keywords):
-            tasks.append({
-                "type": "documentation",
-                "description": f"Update documentation: {prompt}",
-                "priority": 3
-            })
-        
-        # Default to code task if nothing matches
-        if not tasks:
-            tasks.append({
-                "type": "code",
-                "description": prompt,
-                "priority": 1
-            })
-        
-        return tasks
+        try:
+            # Get model
+            model = self.get_model()
+            
+            # Create PydanticAI agent for task decomposition
+            pydantic_agent = PydanticAgent(
+                model=model,
+                result_type=TaskDecomposition,
+                system_prompt=self.get_system_prompt()
+            )
+            
+            # Build prompt for task decomposition
+            decomposition_prompt = f"""Analyze this user request and break it down into actionable tasks:
+
+"{prompt}"
+
+Create a structured task breakdown with:
+- Task type (one of: "code", "test", "review", "documentation")
+- Detailed description of what needs to be done
+- Priority (1 = highest)
+
+Each task should be atomic and actionable. Consider:
+- What code needs to be written?
+- What tests are needed?
+- What documentation should be updated?
+- Are there review/quality requirements?
+
+Return the tasks in order of execution priority."""
+            
+            # Run LLM decomposition
+            result = await pydantic_agent.run(decomposition_prompt)
+            
+            # Extract tasks from LLM response
+            tasks = result.data.tasks
+            
+            # Validate and normalize task structure
+            normalized_tasks = []
+            for task in tasks:
+                normalized_task = {
+                    "type": task.get("type", "code"),
+                    "description": task.get("description", prompt),
+                    "priority": task.get("priority", 1)
+                }
+                normalized_tasks.append(normalized_task)
+            
+            # If no tasks generated, fall back to default
+            if not normalized_tasks:
+                normalized_tasks.append({
+                    "type": "code",
+                    "description": prompt,
+                    "priority": 1
+                })
+            
+            return normalized_tasks
+            
+        except Exception as e:
+            # Fallback to simple keyword-based decomposition if LLM fails
+            tasks = []
+            
+            # Check for code-related keywords
+            code_keywords = ["create", "implement", "generate", "write", "code", "function"]
+            if any(keyword in prompt.lower() for keyword in code_keywords):
+                tasks.append({
+                    "type": "code",
+                    "description": f"Generate code: {prompt}",
+                    "priority": 1
+                })
+            
+            # Default to code task if nothing matches
+            if not tasks:
+                tasks.append({
+                    "type": "code",
+                    "description": prompt,
+                    "priority": 1
+                })
+            
+            return tasks
     
     async def execute_dag(
         self,
@@ -252,20 +300,41 @@ class OrchestratorAgent(BaseAgent):
         Returns:
             System prompt
         """
-        return """You are the Orchestrator Agent for Aegis-CLI.
-        
-Your role is to:
-1. Analyze user prompts and break them down into actionable tasks
-2. Identify dependencies between tasks
-3. Delegate tasks to specialized agents (Coder, Tester, Critic, Janitor)
-4. Coordinate the verification cycle to ensure quality
+        return """You are the Orchestrator Agent for Aegis-CLI, an expert at breaking down complex software development tasks.
 
-You should create a structured plan with clear dependencies and priorities.
+Your role is to analyze user prompts and decompose them into structured, actionable subtasks that can be executed by specialized agents.
+
+**Available Agent Types:**
+- **code**: For generating Python code implementations
+- **test**: For creating and running pytest tests
+- **review**: For code quality and security reviews
+- **documentation**: For updating README, docstrings, and API docs
+
+**Task Decomposition Guidelines:**
+1. Break complex requests into atomic, sequential tasks
+2. Identify all required components (code, tests, docs)
+3. Set realistic priorities (1 = highest/first)
+4. Ensure each task has a clear, actionable description
+5. Consider dependencies between tasks
+
+**Example Decomposition:**
+User: "Create a calculator function with tests"
+
+Tasks:
+1. {"type": "code", "description": "Implement calculator function with add, subtract, multiply, divide operations", "priority": 1}
+2. {"type": "test", "description": "Create comprehensive pytest tests for calculator with edge cases", "priority": 2}
+3. {"type": "documentation", "description": "Add docstrings and usage examples to calculator", "priority": 3}
+
+**Output Format:**
+Return a JSON structure with:
+- "tasks": Array of task objects (type, description, priority)
+- "reasoning": Brief explanation of your decomposition strategy
+
 Always consider:
-- What needs to be coded
-- What needs to be tested
-- What needs to be documented
-- Security and quality requirements
+- Code quality and security requirements
+- Test coverage needs
+- Documentation completeness
+- Logical execution order
 """
     
     def get_required_tools(self) -> list[str]:

@@ -30,7 +30,7 @@ class CoderAgent(BaseAgent):
         self.registry = get_registry()
     
     async def process(self, task: AgentTask) -> AgentResponse:
-        """Process a code generation task.
+        """Process a code generation task using LLM.
         
         Args:
             task: Task to process
@@ -38,6 +38,9 @@ class CoderAgent(BaseAgent):
         Returns:
             AgentResponse with generated code
         """
+        from pydantic_ai import Agent as PydanticAgent
+        from aegis.core.tool_bridge import create_toolset_from_registry
+        
         try:
             # Get task details
             description = task.payload.get("description", "")
@@ -48,35 +51,70 @@ class CoderAgent(BaseAgent):
             test_feedback = task.context.get("test_feedback", [])
             review_feedback = task.context.get("review_feedback", [])
             
-            # In production, would use PydanticAI/LLM here
-            # For now, create placeholder implementation
+            # Build comprehensive prompt with feedback
+            prompt = f"Generate Python code: {description}"
             
-            reasoning = f"Generating code for: {description}"
             if previous_attempt:
-                reasoning += f"\nIncorporating feedback from previous attempt"
+                prompt += "\n\nThis is a retry. Previous attempt did not meet requirements."
+            
             if test_feedback:
-                reasoning += f"\nAddressing test failures: {', '.join(test_feedback[:3])}"
+                feedback_str = "\n".join(f"- {fb}" for fb in test_feedback[:5])
+                prompt += f"\n\n**Test Failures to Fix:**\n{feedback_str}"
+            
             if review_feedback:
-                reasoning += f"\nAddressing review comments: {', '.join(review_feedback[:3])}"
+                feedback_str = "\n".join(f"- {fb}" for fb in review_feedback[:5])
+                prompt += f"\n\n**Review Comments to Address:**\n{feedback_str}"
             
-            # Placeholder code generation
-            generated_code = self._generate_placeholder_code(description)
+            # Get model and tools
+            model = self.get_model()
+            toolset = create_toolset_from_registry(self.registry)
             
+            # Create PydanticAI agent with tools
+            pydantic_agent = PydanticAgent(
+                model=model,
+                tools=toolset,
+                system_prompt=self.get_system_prompt()
+            )
+            
+            # Generate code using LLM
+            result = await pydantic_agent.run(prompt)
+            
+            # Extract generated code from response
+            # The LLM should return the code as text
+            generated_code = str(result.data)
+            
+            # Build reasoning trace
+            reasoning = f"Generated code for: {description}"
+            if previous_attempt:
+                reasoning += "\nIncorporated feedback from previous attempt"
+            if test_feedback:
+                reasoning += f"\nFixed {len(test_feedback)} test failures"
+            if review_feedback:
+                reasoning += f"\nAddressed {len(review_feedback)} review comments"
+            
+            # Track tool calls
             tool_calls = []
             
             # If file_path is provided, write to file
             if file_path:
                 fs_tool = self.registry.get_tool("filesystem")
                 if fs_tool:
-                    # For placeholder, we'll just track the tool call
+                    write_result = await fs_tool.execute(
+                        action="write_file",
+                        path=file_path,
+                        content=generated_code
+                    )
+                    
                     tool_calls.append(ToolCall(
                         tool_name="filesystem",
                         parameters={
-                            "action": "smart_patch",
+                            "action": "write_file",
                             "path": file_path,
-                            "changes": []
+                            "content": generated_code[:100] + "..."  # Truncate for logging
                         },
-                        success=True
+                        result=write_result.data,
+                        success=write_result.success,
+                        error=write_result.error
                     ))
             
             return AgentResponse(
@@ -97,38 +135,6 @@ class CoderAgent(BaseAgent):
                 reasoning_trace=f"Error generating code: {e}",
                 errors=[str(e)]
             )
-    
-    def _generate_placeholder_code(self, description: str) -> str:
-        """Generate placeholder code based on description.
-        
-        Args:
-            description: Code description
-            
-        Returns:
-            Generated code
-        """
-        # Simple template-based code generation
-        # In production, would use LLM
-        
-        if "hello world" in description.lower():
-            return '''def hello_world() -> str:
-    """Return a hello world message.
-    
-    Returns:
-        Greeting message
-    """
-    return "Hello, World!"
-'''
-        
-        # Generic function template
-        return '''def generated_function() -> None:
-    """Generated function placeholder.
-    
-    This function was generated based on the description:
-    {description}
-    """
-    pass
-'''.format(description=description)
     
     async def validate_input(self, task: AgentTask) -> bool:
         """Validate task input.
