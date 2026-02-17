@@ -439,3 +439,369 @@ class TestEdgeCases:
         
         is_valid, _ = parser.validate_code(code)
         assert is_valid
+
+
+class TestToolCallExtraction:
+    """Test tool call extraction patterns (P0 - Critical for Llama 3.1)."""
+    
+    def test_tool_call_dict_args(self):
+        """Test Pattern 5: Tool call with dict arguments."""
+        parser = LLMResponseParser()
+        
+        # Mock tool call with dict args
+        class MockToolCall:
+            def __init__(self, name, args):
+                self.function = type('Function', (), {'name': name, 'arguments': args})()
+        
+        class MockMessageWithTools:
+            def __init__(self, tool_calls):
+                self.tool_calls = tool_calls
+                self.parts = [MockPart("Some conversational text")]
+        
+        class MockResultWithTools:
+            def __init__(self, tool_calls):
+                self._messages = [MockMessageWithTools(tool_calls)]
+            def all_messages(self):
+                return self._messages
+        
+        # Test with 'code' parameter
+        tool_calls = [MockToolCall('python', {'code': 'def hello(): pass'})]
+        result = MockResultWithTools(tool_calls)
+        code = parser.parse(result, content_type='code')
+        
+        assert code == 'def hello(): pass'
+        assert parser._stats['tool_call_extractions'] == 1
+    
+    def test_tool_call_multiple_params(self):
+        """Test tool calls with different parameter names."""
+        parser = LLMResponseParser()
+        
+        class MockToolCall:
+            def __init__(self, name, args):
+                self.function = type('Function', (), {'name': name, 'arguments': args})()
+        
+        class MockMessageWithTools:
+            def __init__(self, tool_calls):
+                self.tool_calls = tool_calls
+                self.parts = [MockPart("Text")]
+        
+        class MockResultWithTools:
+            def __init__(self, tool_calls):
+                self._messages = [MockMessageWithTools(tool_calls)]
+            def all_messages(self):
+                return self._messages
+        
+        # Test with 'python_code' parameter
+        tool_calls = [MockToolCall('execute_python', {'python_code': 'x = 1'})]
+        result = MockResultWithTools(tool_calls)
+        code = parser.parse(result, content_type='code')
+        assert code == 'x = 1'
+        
+        # Test with 'script' parameter
+        parser2 = LLMResponseParser()
+        tool_calls2 = [MockToolCall('run_code', {'script': 'y = 2'})]
+        result2 = MockResultWithTools(tool_calls2)
+        code2 = parser2.parse(result2, content_type='code')
+        assert code2 == 'y = 2'
+    
+    def test_tool_call_json_string_args(self):
+        """Test Pattern 6: Tool call with JSON string arguments."""
+        parser = LLMResponseParser()
+        
+        class MockToolCall:
+            def __init__(self, name, args):
+                self.function = type('Function', (), {'name': name, 'arguments': args})()
+        
+        class MockMessageWithTools:
+            def __init__(self, tool_calls):
+                self.tool_calls = tool_calls
+                self.parts = [MockPart("Text")]
+        
+        class MockResultWithTools:
+            def __init__(self, tool_calls):
+                self._messages = [MockMessageWithTools(tool_calls)]
+            def all_messages(self):
+                return self._messages
+        
+        # JSON string with escaped newlines
+        json_args = '{"code":"def hello():\\n    pass"}'
+        tool_calls = [MockToolCall('python', json_args)]
+        result = MockResultWithTools(tool_calls)
+        code = parser.parse(result, content_type='code')
+        
+        assert 'def hello():' in code
+        assert 'pass' in code
+    
+    def test_malformed_json_repair(self):
+        """Test Pattern 7/8: Malformed JSON repair from Llama variants."""
+        parser = LLMResponseParser()
+        
+        # Test unescaped quotes repair
+        malformed = '{"code":"def foo():\\n    return True"}'
+        repaired = parser._repair_json(malformed)
+        # Should at least not crash
+        assert isinstance(repaired, str)
+        
+        # Test missing closing bracket
+        malformed2 = '{"code":"def bar(): pass"'
+        repaired2 = parser._repair_json(malformed2)
+        assert repaired2.count('{') == repaired2.count('}')
+    
+    def test_tool_call_filters_non_code_tools(self):
+        """Test that only code-generating tools are processed."""
+        parser = LLMResponseParser()
+        
+        class MockToolCall:
+            def __init__(self, name, args):
+                self.function = type('Function', (), {'name': name, 'arguments': args})()
+        
+        class MockMessageWithTools:
+            def __init__(self, tool_calls):
+                self.tool_calls = tool_calls
+                self.parts = [MockPart("def fallback(): pass")]
+        
+        class MockResultWithTools:
+            def __init__(self, tool_calls):
+                self._messages = [MockMessageWithTools(tool_calls)]
+            def all_messages(self):
+                return self._messages
+        
+        # Non-code tool should be ignored, fall back to content
+        tool_calls = [MockToolCall('search_web', {'query': 'python'})]
+        result = MockResultWithTools(tool_calls)
+        code = parser.parse(result, content_type='code')
+        
+        # Should extract from content, not tool call
+        assert 'def fallback(): pass' in code
+        assert parser._stats['tool_call_extractions'] == 0
+
+
+class TestRefusalDetection:
+    """Test refusal detection (Pattern 14)."""
+    
+    def test_detects_ethical_refusal(self):
+        """Test detection of ethical guideline refusals."""
+        parser = LLMResponseParser(strict=True)
+        
+        refusal = "I cannot generate that code as it violates ethical guidelines."
+        result = MockAgentRunResult(refusal)
+        
+        with pytest.raises(ParsingError) as exc_info:
+            parser.parse(result, content_type='code')
+        
+        assert exc_info.value.stage == "refusal"
+    
+    def test_detects_capability_refusal(self):
+        """Test detection of capability refusals."""
+        parser = LLMResponseParser(strict=True)
+        
+        refusal = "I'm not able to write code that could be harmful."
+        result = MockAgentRunResult(refusal)
+        
+        with pytest.raises(ParsingError):
+            parser.parse(result, content_type='code')
+    
+    def test_non_strict_returns_empty_on_refusal(self):
+        """Test non-strict mode returns empty on refusal."""
+        parser = LLMResponseParser(strict=False)
+        
+        refusal = "I cannot help with that request."
+        result = MockAgentRunResult(refusal)
+        code = parser.parse(result, content_type='code')
+        
+        assert code == ""
+
+
+class TestTruncationDetection:
+    """Test truncation detection (Pattern 13)."""
+    
+    def test_detects_unbalanced_quotes(self):
+        """Test detection of unbalanced quotes."""
+        parser = LLMResponseParser()
+        
+        truncated = 'def foo():\n    msg = "Hello'
+        assert parser._is_truncated(truncated) is True
+        
+        complete = 'def foo():\n    msg = "Hello"'
+        assert parser._is_truncated(complete) is False
+    
+    def test_detects_unbalanced_parens(self):
+        """Test detection of unbalanced parentheses."""
+        parser = LLMResponseParser()
+        
+        truncated = 'def foo():\n    print("test"'
+        assert parser._is_truncated(truncated) is True
+        
+        complete = 'def foo():\n    print("test")'
+        assert parser._is_truncated(complete) is False
+    
+    def test_detects_unbalanced_brackets(self):
+        """Test detection of unbalanced brackets."""
+        parser = LLMResponseParser()
+        
+        truncated = 'def foo():\n    x = [1, 2, 3'
+        assert parser._is_truncated(truncated) is True
+        
+        complete = 'def foo():\n    x = [1, 2, 3]'
+        assert parser._is_truncated(complete) is False
+
+
+class TestStatistics:
+    """Test statistics tracking."""
+    
+    def test_stats_initialization(self):
+        """Test stats are initialized correctly."""
+        parser = LLMResponseParser()
+        stats = parser.get_stats()
+        
+        assert stats['total_parsed'] == 0
+        assert stats['tool_call_extractions'] == 0
+        assert stats['markdown_extractions'] == 0
+        assert stats['plain_extractions'] == 0
+        assert stats['failures'] == 0
+        assert stats['success_rate'] == 0.0
+    
+    def test_stats_tracking(self):
+        """Test stats are tracked correctly."""
+        parser = LLMResponseParser()
+        
+        # Parse markdown
+        result1 = MockAgentRunResult('```python\ndef test(): pass\n```')
+        parser.parse(result1, content_type='code')
+        
+        stats = parser.get_stats()
+        assert stats['total_parsed'] == 1
+        assert stats['markdown_extractions'] == 1
+        
+        # Parse plain
+        result2 = MockAgentRunResult('def test2(): pass')
+        parser.parse(result2, content_type='code')
+        
+        stats = parser.get_stats()
+        assert stats['total_parsed'] == 2
+        assert stats['plain_extractions'] == 1
+    
+    def test_success_rate_calculation(self):
+        """Test success rate calculation."""
+        parser = LLMResponseParser()
+        
+        # Successful parse
+        result1 = MockAgentRunResult('def test(): pass')
+        parser.parse(result1, content_type='code')
+        
+        stats = parser.get_stats()
+        assert stats['success_rate'] == 1.0
+        
+        # Failed parse (empty result)
+        class EmptyResult:
+            def all_messages(self):
+                return []
+        
+        parser.parse(EmptyResult(), content_type='code')
+        
+        stats = parser.get_stats()
+        assert stats['total_parsed'] == 2
+        assert stats['failures'] == 1
+        assert stats['success_rate'] == 0.5
+
+
+class TestChineseThinkingTags:
+    """Test Chinese thinking tag removal."""
+    
+    def test_remove_chinese_thinking_tags(self):
+        """Test removal of Chinese thinking tags."""
+        parser = LLMResponseParser()
+        
+        content = "<反思>考虑PEP8规范</反思>\ndef hello(): pass"
+        cleaned = parser._remove_thinking_tags(content)
+        
+        assert "<反思>" not in cleaned
+        assert "考虑PEP8规范" not in cleaned
+        assert "def hello(): pass" in cleaned
+    
+    def test_mixed_language_thinking_tags(self):
+        """Test removal of mixed language thinking tags."""
+        parser = LLMResponseParser()
+        
+        content = """<think>English reasoning</think>
+<思考>中文思考</思考>
+def hello(): pass"""
+        cleaned = parser._remove_thinking_tags(content)
+        
+        assert "<think>" not in cleaned
+        assert "<思考>" not in cleaned
+        assert "def hello(): pass" in cleaned
+
+
+class TestConversationalWrapping:
+    """Test conversational wrapper removal (Pattern 10)."""
+    
+    def test_removes_prefix_explanation(self):
+        """Test removal of explanatory text before code."""
+        parser = LLMResponseParser()
+        
+        content = "Here is the code you requested:\ndef hello(): pass"
+        result = MockAgentRunResult(content)
+        code = parser.parse(result, content_type='code')
+        
+        assert "Here is" not in code
+        assert "def hello(): pass" in code
+    
+    def test_preserves_code_comments(self):
+        """Test that code comments are preserved."""
+        parser = LLMResponseParser()
+        
+        content = """def hello():
+    # This is a comment
+    pass"""
+        result = MockAgentRunResult(content)
+        code = parser.parse(result, content_type='code')
+        
+        assert "# This is a comment" in code
+
+
+class TestLanguageTagVariants:
+    """Test language tag handling (Pattern 11)."""
+    
+    def test_python_tag_variant(self):
+        """Test 'python' tag."""
+        parser = LLMResponseParser()
+        
+        content = "```python\ndef test(): pass\n```"
+        result = MockAgentRunResult(content)
+        code = parser.parse(result, content_type='code')
+        
+        assert "def test(): pass" in code
+        assert "```" not in code
+    
+    def test_py_tag_variant(self):
+        """Test 'py' tag."""
+        parser = LLMResponseParser()
+        
+        content = "```py\ndef test(): pass\n```"
+        result = MockAgentRunResult(content)
+        code = parser.parse(result, content_type='code')
+        
+        assert "def test(): pass" in code
+    
+    def test_no_language_tag(self):
+        """Test no language tag."""
+        parser = LLMResponseParser()
+        
+        content = "```\ndef test(): pass\n```"
+        result = MockAgentRunResult(content)
+        code = parser.parse(result, content_type='code')
+        
+        assert "def test(): pass" in code
+
+
+class TestLogFailuresOption:
+    """Test log_failures option."""
+    
+    def test_log_failures_initialization(self):
+        """Test log_failures option is stored."""
+        parser = LLMResponseParser(log_failures=True)
+        assert parser.log_failures is True
+        
+        parser2 = LLMResponseParser(log_failures=False)
+        assert parser2.log_failures is False
