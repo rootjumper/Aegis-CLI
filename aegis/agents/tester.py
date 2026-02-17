@@ -9,6 +9,7 @@ from pydantic_ai.models import Model
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
 from aegis.core.feedback import FeedbackParser
+from aegis.core.llm_response_parser import LLMResponseParser
 
 
 class TesterAgent(BaseAgent):
@@ -30,6 +31,7 @@ class TesterAgent(BaseAgent):
         super().__init__("tester", model=model)
         self.registry = get_registry()
         self.feedback_parser = FeedbackParser()
+        self.parser = LLMResponseParser(strict=False)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a testing task using LLM to generate tests.
@@ -90,7 +92,19 @@ Return ONLY the test code, no explanations."""
                 
                 # Generate tests using LLM
                 result = await pydantic_agent.run(test_prompt)
-                test_code = str(result.data)
+                
+                # Extract test code using universal parser
+                test_code = self.parser.parse(result, content_type='code')
+                
+                # Validate the extracted test code
+                is_valid, validation_error = self.parser.validate_code(test_code)
+                if not is_valid:
+                    return AgentResponse(
+                        status="FAIL",
+                        data={},
+                        reasoning_trace=f"Generated test code has syntax errors: {validation_error}",
+                        errors=[f"Invalid Python test code: {validation_error}"]
+                    )
                 
                 # Determine test file path
                 test_path = file_path.replace(".py", "_test.py") if file_path else "test_generated.py"

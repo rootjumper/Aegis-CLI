@@ -8,6 +8,7 @@ from pydantic_ai.models import Model
 
 from aegis.agents.base import BaseAgent, AgentTask, AgentResponse, ToolCall
 from aegis.tools.registry import get_registry
+from aegis.core.llm_response_parser import LLMResponseParser
 
 
 class JanitorAgent(BaseAgent):
@@ -28,6 +29,7 @@ class JanitorAgent(BaseAgent):
         """
         super().__init__("janitor", model=model)
         self.registry = get_registry()
+        self.parser = LLMResponseParser(strict=False)
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a documentation task using LLM.
@@ -129,7 +131,10 @@ Return the updated documentation."""
             
             # Generate updated documentation
             result = await pydantic_agent.run(update_prompt)
-            updated_content = str(result.data)
+            
+            # Extract updated content using universal parser
+            # For documentation, use 'text' type to preserve markdown formatting
+            updated_content = self.parser.parse(result, content_type='text')
             
             # Write updated documentation
             if fs_tool:
