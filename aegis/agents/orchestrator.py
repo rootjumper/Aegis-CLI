@@ -280,14 +280,35 @@ IMPORTANT: Return ONLY the JSON, no other text."""
             plan = json.loads(plan_text)
         except json.JSONDecodeError:
             # Try extracting JSON from markdown or text
-            # Use greedy match to get the full JSON object
-            json_match = re.search(r'\{[\s\S]*\}', plan_text)
+            # Use a more sophisticated approach to find JSON boundaries
+            # Look for the first complete JSON object
+            json_match = re.search(r'\{[\s\S]*?\}', plan_text)
             if json_match:
                 try:
                     plan = json.loads(json_match.group(0))
                 except json.JSONDecodeError:
-                    # Fallback: create basic plan
-                    plan = self._create_fallback_plan(task)
+                    # If non-greedy didn't work, try finding a properly nested JSON
+                    # This handles cases where JSON might have nested objects
+                    depth = 0
+                    start_idx = plan_text.find('{')
+                    if start_idx != -1:
+                        for i, char in enumerate(plan_text[start_idx:], start=start_idx):
+                            if char == '{':
+                                depth += 1
+                            elif char == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    try:
+                                        plan = json.loads(plan_text[start_idx:i+1])
+                                        break
+                                    except json.JSONDecodeError:
+                                        pass
+                        else:
+                            # Fallback: create basic plan
+                            plan = self._create_fallback_plan(task)
+                    else:
+                        # Fallback: create basic plan
+                        plan = self._create_fallback_plan(task)
             else:
                 # Fallback: create basic plan
                 plan = self._create_fallback_plan(task)

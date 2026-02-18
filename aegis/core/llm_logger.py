@@ -185,7 +185,7 @@ class LLMLogger:
                         # Pretty print parameters if it's a dict
                         params = tool['parameters']
                         if isinstance(params, dict):
-                            params_str = json.dumps(params, indent=10)
+                            params_str = json.dumps(params, indent=2)
                             # Indent each line
                             params_str = '\n'.join('      ' + line for line in params_str.split('\n'))
                             f.write(f"      Parameters:\n{params_str}\n")
