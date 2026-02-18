@@ -191,7 +191,8 @@ async def test_html_references_correct_js_css_paths():
             for css_file in css_files:
                 css_filename = css_file.name
                 
-                # Check that the actual filename is referenced
+                # When the CSS file has a non-standard name, OR when there's only one CSS 
+                # file (even if named 'styles.css'), it should be explicitly referenced
                 if css_filename != "styles.css" or len(css_files) == 1:
                     # If not named "styles.css" or it's the only CSS file, it should be referenced
                     # The reference might be "styles.css" which is acceptable as a common name

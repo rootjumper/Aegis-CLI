@@ -170,8 +170,13 @@ ORIGINAL REQUEST: {original_task}
 TARGET FILE: {file_path}
 
 CONTEXT:
-{json.dumps(context_info, indent=2) if context_info else 'No additional context'}
-{file_structure_info}
+{json.dumps(context_info, indent=2) if context_info else 'No additional context'}"""
+
+            # Add file structure information if available
+            if file_structure_info:
+                prompt += file_structure_info
+            
+            prompt += f"""
 
 REQUIREMENTS:
 - Generate clean, production-ready {language_name} code
