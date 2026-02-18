@@ -76,6 +76,59 @@ class VerificationResult:
                 summary += f"{issue}\n"
         
         return summary
+    
+    def get_semantic_feedback(self) -> dict[str, Any]:
+        """Get semantic verification feedback for agent prompts.
+        
+        Returns:
+            Dictionary with categorized semantic issues and guidance
+        """
+        semantic_errors = [e for e in self.critical_errors if e.layer == 3]
+        
+        feedback = {
+            "has_semantic_errors": len(semantic_errors) > 0,
+            "error_count": len(semantic_errors),
+            "categories": {
+                "module_system": [],
+                "css_integration": [],
+                "form_handlers": [],
+                "cross_file": []
+            },
+            "guidance": []
+        }
+        
+        for error in semantic_errors:
+            msg = error.message.lower()
+            
+            # Categorize errors
+            if "es6" in msg or "export" in msg or "module" in msg:
+                feedback["categories"]["module_system"].append(error.message)
+                if "type=\"module\"" not in [g for g in feedback["guidance"]]:
+                    feedback["guidance"].append(
+                        "Use type=\"module\" in <script> tags when JavaScript uses ES6 exports, "
+                        "OR use global functions (window.functionName) instead of exports"
+                    )
+            
+            elif "css" in msg or "class" in msg or "style" in msg:
+                feedback["categories"]["css_integration"].append(error.message)
+                if "css-html" not in [g for g in feedback["guidance"]]:
+                    feedback["guidance"].append(
+                        "Ensure HTML elements use class attributes that match CSS selectors. "
+                        "CSS classes must be applied to HTML elements to have any visual effect."
+                    )
+            
+            elif "form" in msg or "submit" in msg:
+                feedback["categories"]["form_handlers"].append(error.message)
+                if "form-handler" not in [g for g in feedback["guidance"]]:
+                    feedback["guidance"].append(
+                        "Forms with submit buttons need submission handlers. "
+                        "Add onsubmit=\"return handleSubmit()\" to <form> tags or attach event listeners in JavaScript."
+                    )
+            
+            else:
+                feedback["categories"]["cross_file"].append(error.message)
+        
+        return feedback
 
 
 class HTMLReferenceExtractor(HTMLParser):
