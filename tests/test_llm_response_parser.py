@@ -202,6 +202,46 @@ def hello_world() -> None:
         valid, error = parser.validate_code(code)
         assert valid is True
         assert error == ""
+    
+    def test_validate_non_python_code(self):
+        """Test validation of non-Python code (HTML, CSS, JavaScript)."""
+        parser = LLMResponseParser()
+        
+        # HTML should pass validation (no AST parse)
+        html_code = '''<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body><h1>Hello</h1></body>
+</html>'''
+        valid, error = parser.validate_code(html_code, language='html')
+        assert valid is True
+        assert error == ""
+        
+        # CSS should pass validation
+        css_code = '''body { margin: 0; padding: 0; }
+.container { display: flex; }'''
+        valid, error = parser.validate_code(css_code, language='css')
+        assert valid is True
+        assert error == ""
+        
+        # JavaScript should pass validation
+        js_code = '''function add(a, b) {
+    return a + b;
+}'''
+        valid, error = parser.validate_code(js_code, language='javascript')
+        assert valid is True
+        assert error == ""
+        
+        # Empty code should fail even for non-Python
+        valid, error = parser.validate_code("", language='html')
+        assert valid is False
+        assert "empty" in error.lower()
+        
+        # Python with explicit language tag should still use AST validation
+        invalid_python = "def hello( pass"
+        valid, error = parser.validate_code(invalid_python, language='python')
+        assert valid is False
+        assert "Syntax error" in error
 
 
 class TestProviderFormats:

@@ -198,14 +198,14 @@ No other text before or after the code block."""
                 finish_reason="stop"
             )
             
-            # Validate the extracted code
-            is_valid, validation_error = self.parser.validate_code(generated_code)
+            # Validate the extracted code (only for Python)
+            is_valid, validation_error = self.parser.validate_code(generated_code, language=markdown_tag)
             if not is_valid:
                 return AgentResponse(
                     status="FAIL",
                     data={},
                     reasoning_trace=f"Generated code has syntax errors: {validation_error}",
-                    errors=[f"Invalid Python code: {validation_error}"]
+                    errors=[f"Invalid {language_name} code: {validation_error}"]
                 )
             
             # Build reasoning trace
