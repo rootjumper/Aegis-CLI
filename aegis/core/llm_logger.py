@@ -218,6 +218,87 @@ class LLMLogger:
         
         return interaction_id
     
+    def _extract_tool_calls_from_response(self, response: Any) -> list[dict[str, Any]]:
+        """Extract detailed tool calls from PydanticAI response.
+        
+        This method extracts all tool calls made by the LLM including:
+        - Tool names
+        - Full parameters/arguments
+        - Tool IDs if available
+        
+        Args:
+            response: PydanticAI AgentRunResult
+            
+        Returns:
+            List of dictionaries containing tool call information
+        """
+        tool_calls_data = []
+        
+        try:
+            if not hasattr(response, 'all_messages'):
+                return tool_calls_data
+            
+            messages = response.all_messages()
+            if not messages:
+                return tool_calls_data
+            
+            # Check each message for tool calls (not just last one)
+            for msg_idx, msg in enumerate(messages):
+                if not hasattr(msg, 'tool_calls') or not msg.tool_calls:
+                    continue
+                
+                # Extract each tool call
+                for tc_idx, tool_call in enumerate(msg.tool_calls):
+                    tool_info = {
+                        "message_index": msg_idx,
+                        "call_index": tc_idx
+                    }
+                    
+                    # Extract tool ID
+                    if hasattr(tool_call, 'id'):
+                        tool_info['id'] = tool_call.id
+                    
+                    # Extract tool name (try multiple attributes)
+                    if hasattr(tool_call, 'function') and hasattr(tool_call.function, 'name'):
+                        tool_info['name'] = tool_call.function.name
+                    elif hasattr(tool_call, 'name'):
+                        tool_info['name'] = tool_call.name
+                    else:
+                        tool_info['name'] = 'unknown'
+                    
+                    # Extract arguments/parameters (this is critical!)
+                    args = None
+                    if hasattr(tool_call, 'function') and hasattr(tool_call.function, 'arguments'):
+                        args = tool_call.function.arguments
+                    elif hasattr(tool_call, 'arguments'):
+                        args = tool_call.arguments
+                    
+                    # Parse arguments if they're a JSON string
+                    if isinstance(args, str):
+                        try:
+                            tool_info['parameters'] = json.loads(args)
+                        except json.JSONDecodeError:
+                            tool_info['parameters'] = args  # Keep as string if not valid JSON
+                    elif isinstance(args, dict):
+                        tool_info['parameters'] = args
+                    else:
+                        tool_info['parameters'] = str(args) if args else None
+                    
+                    # Extract type if available
+                    if hasattr(tool_call, 'type'):
+                        tool_info['type'] = tool_call.type
+                    
+                    tool_calls_data.append(tool_info)
+        
+        except Exception as e:
+            # Log extraction error but don't fail
+            tool_calls_data.append({
+                "error": f"Failed to extract tool calls: {str(e)}",
+                "type": "extraction_error"
+            })
+        
+        return tool_calls_data
+    
     def log_response(
         self,
         interaction_id: int,
@@ -236,7 +317,7 @@ class LLMLogger:
             response: Response object (AgentRunResult or similar)
             raw_response: Raw response text if available
             extracted_content: Content extracted by parser
-            tool_calls: Tool calls made by LLM
+            tool_calls: Tool calls made by LLM (if None, will auto-extract from response)
             finish_reason: Why the response ended
         """
         # Try to extract raw content from response object
@@ -252,6 +333,10 @@ class LLMLogger:
             except Exception:
                 raw_response = str(response)
         
+        # Auto-extract tool calls if not provided (CRITICAL FIX)
+        if tool_calls is None:
+            tool_calls = self._extract_tool_calls_from_response(response)
+        
         log_entry = {
             "interaction_id": interaction_id,
             "timestamp": datetime.now().isoformat(),
@@ -264,7 +349,7 @@ class LLMLogger:
             "response_length": len(raw_response or "")
         }
         
-        # Write to session log
+        # Write to session log with DETAILED tool call information
         with open(self.session_log, "a", encoding="utf-8") as f:
             f.write(f"\n{'-'*80}\n")
             f.write(f"[{interaction_id}] RESPONSE - {agent_name}\n")
@@ -272,11 +357,35 @@ class LLMLogger:
             f.write(f"Finish Reason: {finish_reason or 'unknown'}\n")
             f.write(f"{'-'*80}\n")
             
+            # ENHANCED: Show detailed tool calls with full parameters
             if tool_calls:
                 f.write(f"\nTOOL CALLS ({len(tool_calls)}):\n")
-                for tc in tool_calls:
-                    f.write(f"  - {tc}\n")
+                for idx, tc in enumerate(tool_calls, 1):
+                    f.write(f"\n  [{idx}] Tool Call:\n")
+                    
+                    # Handle both dict format (new) and simple format (legacy)
+                    if isinstance(tc, dict):
+                        if 'name' in tc:
+                            f.write(f"      Name: {tc['name']}\n")
+                        if 'id' in tc:
+                            f.write(f"      ID: {tc['id']}\n")
+                        if 'type' in tc:
+                            f.write(f"      Type: {tc['type']}\n")
+                        if 'parameters' in tc and tc['parameters']:
+                            f.write(f"      Parameters:\n")
+                            # Pretty print parameters
+                            params_str = json.dumps(tc['parameters'], indent=4)
+                            # Indent each line for readability
+                            for line in params_str.split('\n'):
+                                f.write(f"        {line}\n")
+                        if 'error' in tc:
+                            f.write(f"      ERROR: {tc['error']}\n")
+                    else:
+                        # Legacy format or simple string
+                        f.write(f"      {tc}\n")
                 f.write("\n")
+            else:
+                f.write(f"\nTOOL CALLS: None (text-based response)\n\n")
             
             if raw_response:
                 f.write(f"\nRAW RESPONSE ({len(raw_response)} chars):\n{raw_response}\n")
@@ -294,6 +403,25 @@ class LLMLogger:
                 title=f"[{interaction_id}] 📥 RESPONSE",
                 border_style="green"
             ))
+            
+            # Show detailed tool calls if present
+            if tool_calls:
+                for idx, tc in enumerate(tool_calls, 1):
+                    if isinstance(tc, dict) and 'name' in tc:
+                        params_preview = ""
+                        if 'parameters' in tc and tc['parameters']:
+                            params_str = json.dumps(tc['parameters'], indent=2)
+                            if len(params_str) > 200:
+                                params_str = params_str[:200] + "..."
+                            params_preview = f"\n[dim]Parameters:[/dim]\n{params_str}"
+                        
+                        self.console.print(Panel(
+                            f"[bold cyan]Name:[/bold cyan] {tc.get('name', 'unknown')}\n"
+                            f"[bold cyan]ID:[/bold cyan] {tc.get('id', 'N/A')}"
+                            + params_preview,
+                            title=f"🔧 Tool Call [{idx}/{len(tool_calls)}]",
+                            border_style="cyan"
+                        ))
             
             if extracted_content:
                 # Show extracted content with syntax highlighting
@@ -338,29 +466,55 @@ class LLMLogger:
             "result_preview": str(result)[:200] if result else None
         }
         
-        # Write to session log
+        # Write to session log with FULL details
         with open(self.session_log, "a", encoding="utf-8") as f:
             f.write(f"\n{'~'*80}\n")
             f.write(f"TOOL CALL - {agent_name} → {tool_name}\n")
             f.write(f"Time: {log_entry['timestamp']}\n")
             f.write(f"Success: {success}\n")
             f.write(f"{'~'*80}\n")
-            f.write(f"Parameters: {json.dumps(parameters, indent=2)}\n")
+            
+            # ENHANCED: Show full parameters with pretty printing
+            f.write(f"\nParameters:\n")
+            if parameters:
+                params_str = json.dumps(parameters, indent=4)
+                for line in params_str.split('\n'):
+                    f.write(f"  {line}\n")
+            else:
+                f.write("  (none)\n")
+            
             if error:
-                f.write(f"Error: {error}\n")
+                f.write(f"\nError: {error}\n")
+            
             if result:
-                f.write(f"Result: {str(result)[:500]}\n")
+                result_str = str(result)
+                # Show more of the result (increased from 500 to 1000 chars)
+                max_result_len = 1000
+                if len(result_str) > max_result_len:
+                    f.write(f"\nResult ({len(result_str)} chars, showing first {max_result_len}):\n")
+                    f.write(f"{result_str[:max_result_len]}\n... (truncated)\n")
+                else:
+                    f.write(f"\nResult ({len(result_str)} chars):\n{result_str}\n")
         
         # Console output if verbose
         if self.verbose:
             status_color = "green" if success else "red"
             status_icon = "✓" if success else "✗"
             
+            # Format parameters for display
+            params_display = ""
+            if parameters:
+                params_str = json.dumps(parameters, indent=2)
+                if len(params_str) > 300:
+                    params_str = params_str[:300] + "..."
+                params_display = f"\n[dim]Parameters:[/dim]\n{params_str}"
+            
             self.console.print(Panel(
                 f"[bold {status_color}]Tool:[/bold {status_color}] {tool_name}\n"
                 f"[bold {status_color}]Agent:[/bold {status_color}] {agent_name}\n"
-                f"[bold {status_color}]Status:[/bold {status_color}] {status_icon}\n"
-                + (f"[bold red]Error:[/bold red] {error}" if error else ""),
+                f"[bold {status_color}]Status:[/bold {status_color}] {status_icon}"
+                + params_display
+                + (f"\n[bold red]Error:[/bold red] {error}" if error else ""),
                 title=f"🔧 TOOL CALL",
                 border_style=status_color
             ))
