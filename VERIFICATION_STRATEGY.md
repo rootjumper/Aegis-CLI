@@ -76,12 +76,20 @@ User Request → Orchestrator Plans → CoderAgent Generates → Files Written �
 - Function/method signatures match between definition and calls
 - Type consistency (where available)
 - All required files in plan OR marked as external dependencies
+- **NEW:** HTML-JavaScript module system compatibility (ES6 exports vs script tag type)
+- **NEW:** HTML-CSS class integration (CSS classes actually used in HTML)
+- **NEW:** Form submission handlers (forms with submit buttons have handlers)
+- **NEW:** Event handler function availability (onclick functions exist in JS)
 
 **Catches:**
 - Export mismatches
 - Function reference failures
 - Circular dependencies
 - Type conflicts
+- **NEW:** ES6 module exports without `type="module"` in HTML script tags
+- **NEW:** CSS classes defined but never applied to HTML elements
+- **NEW:** Forms with submit buttons but no submission handlers
+- **NEW:** JavaScript functions called from HTML but not globally accessible
 
 **Examples:**
 ```html
@@ -92,6 +100,24 @@ User Request → Orchestrator Plans → CoderAgent Generates → Files Written �
 <!-- HTML calls function in event handler -->
 <button onclick="calculate()">Click</button>
 ✅ Verified: calculate() exists in referenced JS files
+
+<!-- NEW: ES6 module detection -->
+<script src="app.js"></script>  <!-- JS has: export default MyApp -->
+❌ ERROR: ES6 exports without type="module"
+✅ FIX: Add type="module" OR use global functions
+
+<!-- NEW: CSS integration -->
+<link href="styles.css" rel="stylesheet">  <!-- CSS has: .container, .button -->
+<div><button>Click</button></div>  <!-- No classes applied -->
+❌ ERROR: CSS classes not used in HTML
+✅ FIX: <div class="container"><button class="button">Click</button></div>
+
+<!-- NEW: Form handler detection -->
+<form id="myform">
+  <button type="submit">Submit</button>
+</form>
+❌ ERROR: Form has submit button but no handler
+✅ FIX: <form id="myform" onsubmit="return handleSubmit()">
 ```
 
 #### **Layer 4: Runtime Verification (Optional)**
@@ -136,6 +162,9 @@ User Request → Orchestrator Plans → CoderAgent Generates → Files Written �
        def auto_fixable_errors(self) -> list[VerificationIssue]
        
        def get_summary(self) -> str
+       
+       def get_semantic_feedback(self) -> dict[str, Any]:
+           """NEW: Get categorized semantic feedback with actionable guidance"""
    ```
 
 3. **`CodeVerifier`** - Main verification engine
@@ -173,14 +202,48 @@ for attempt in range(max_verification_attempts):
 When verification fails, the system attempts to fix issues:
 
 1. **Group errors by file** - Organize issues by which file has the problem
-2. **Regenerate problematic files** - Pass error messages to CoderAgent with context:
+2. **Extract semantic feedback** - Get categorized guidance for integration issues
+3. **Regenerate problematic files** - Pass error messages to CoderAgent with context:
    ```
    FIX THESE VERIFICATION ERRORS:
      - Referenced script not found: script.js
      - Function 'calculateResult()' called but not found
+   
+   IMPORTANT INTEGRATION GUIDANCE:
+     - Use type="module" in <script> tags when JavaScript uses ES6 exports, 
+       OR use global functions (window.functionName) instead of exports
+     - Ensure HTML elements use class attributes that match CSS selectors
    ```
-3. **Re-verify** - Run verification again on the regenerated files
-4. **Iterate** - Repeat up to 3 times total
+4. **Re-verify** - Run verification again on the regenerated files
+5. **Iterate** - Repeat up to 3 times total
+
+### Enhanced Context Passing (NEW)
+
+The CoderAgent now receives language-specific integration requirements:
+
+**For HTML files:**
+```python
+CRITICAL HTML INTEGRATION REQUIREMENTS:
+- If JavaScript uses ES6 exports, use <script type="module">
+- Apply CSS classes to HTML elements for styles to take effect
+- Forms with submit buttons need onsubmit handlers
+- Event handlers (onclick) require globally accessible functions
+```
+
+**For JavaScript files:**
+```python
+CRITICAL JAVASCRIPT INTEGRATION REQUIREMENTS:
+- Use global functions if HTML loads without type="module"
+- Do NOT use ES6 exports unless HTML uses <script type="module">
+- Expose event handler functions globally: window.functionName = ...
+```
+
+**For CSS files:**
+```python
+CRITICAL CSS INTEGRATION REQUIREMENTS:
+- Define classes that match HTML structure
+- Ensure class names correspond to actual HTML elements
+```
 
 ## Verification Report Format
 
@@ -268,12 +331,24 @@ if response.status == "SUCCESS":
 - Layer 3 tests: Semantic verification (cross-file references)
 - Complete workflow tests
 
-**Integration Tests** (`tests/test_verification_integration.py`): 5 tests
+**Enhanced Semantic Verification Tests** (`tests/test_semantic_verification_enhancements.py`): 10 tests
+- ES6 module compatibility verification
+- HTML-CSS class integration checks
+- Form handler validation
+- Calculator app integration scenario (from problem statement)
+
+**Integration Tests** (`tests/test_semantic_verification_integration.py`): 7 tests
+- Verification iteration loop
+- Semantic feedback content and quality
+- Multiple iteration scenarios
+- Guidance actionability
+
+**Legacy Integration Tests** (`tests/test_verification_integration.py`): 6 tests
 - Orchestrator integration
 - Iteration mechanism
 - Verification reporting
 
-**All tests passing**: ✅ 24/25 (1 skipped - needs LLM provider)
+**All tests passing**: ✅ 43 verification-related tests
 
 ### Running Tests
 ```bash
@@ -351,11 +426,12 @@ LANGUAGE_MAP = {
 
 ## Metrics
 
-- **Code**: 750+ lines in `code_verifier.py`
-- **Tests**: 600+ lines across 25 tests
-- **Coverage**: Layers 1-3 fully implemented
+- **Code**: 900+ lines in `code_verifier.py` (was 750+)
+- **Tests**: 1400+ lines across 43 tests (was 600+ lines, 25 tests)
+- **Coverage**: Layers 1-3 fully implemented with enhanced semantic checks
 - **Languages**: 12+ file types supported
-- **Integration**: Seamless with orchestrator
+- **Integration**: Seamless with orchestrator + iteration loop
+- **New Features**: ES6 module detection, CSS-HTML integration, form validation
 
 ## See Also
 

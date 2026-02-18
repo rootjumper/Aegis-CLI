@@ -175,6 +175,16 @@ class OrchestratorAgent(BaseAgent):
             # Build error context for CoderAgent
             error_context = "\n".join(f"  - {msg}" for msg in error_messages[:5])
             
+            # Get semantic feedback for this file's errors
+            semantic_feedback = verification_result.get_semantic_feedback()
+            
+            # Add semantic guidance if relevant
+            semantic_guidance = ""
+            if semantic_feedback["has_semantic_errors"]:
+                guidance_lines = semantic_feedback.get("guidance", [])
+                if guidance_lines:
+                    semantic_guidance = "\n\nIMPORTANT INTEGRATION GUIDANCE:\n" + "\n".join(f"  - {g}" for g in guidance_lines)
+            
             # Compute full workspace path
             full_file_path = self.workspace_manager.get_workspace_path(file_path)
             
@@ -183,7 +193,7 @@ class OrchestratorAgent(BaseAgent):
             
             # Build description with error context
             file_purpose = file_spec["purpose"]
-            full_description = f"{file_purpose} for {original_description}\n\nFIX THESE VERIFICATION ERRORS:\n{error_context}"
+            full_description = f"{file_purpose} for {original_description}\n\nFIX THESE VERIFICATION ERRORS:\n{error_context}{semantic_guidance}"
             
             # Create regeneration task
             regen_task = AgentTask(
@@ -199,7 +209,8 @@ class OrchestratorAgent(BaseAgent):
                         "original_request": original_description,
                         "all_files": plan.get("files_to_create", []),
                         "related_files": related_files,
-                        "verification_errors": error_messages
+                        "verification_errors": error_messages,
+                        "semantic_feedback": semantic_feedback
                     }
                 },
                 context={}

@@ -181,7 +181,38 @@ REQUIREMENTS:
 ```
 - Do NOT use tool calls
 - Do NOT save files yourself
-- Do NOT include explanations outside the code block
+- Do NOT include explanations outside the code block"""
+
+            # Add cross-file integration requirements
+            if markdown_tag == 'html':
+                prompt += """
+
+CRITICAL HTML INTEGRATION REQUIREMENTS:
+- If you reference JavaScript files with <script src="...">, the JavaScript functions must be globally accessible
+- If JavaScript uses ES6 exports (export default), you MUST use <script type="module" src="...">
+- If you reference CSS files with <link href="...">, use the exact paths from the file structure above
+- Apply CSS classes to HTML elements (e.g., <div class="container">) so styles take effect
+- Forms with submit buttons need onsubmit handlers: <form onsubmit="return handleSubmit()">
+- Event handlers like onclick="functionName()" require that function to be globally available in JavaScript"""
+            
+            elif markdown_tag == 'javascript':
+                prompt += """
+
+CRITICAL JAVASCRIPT INTEGRATION REQUIREMENTS:
+- If HTML loads this script without type="module", use global functions (window.myFunction or just function myFunction)
+- Do NOT use ES6 exports (export default) unless HTML loads with <script type="module">
+- Event handler functions called from HTML (onclick, onsubmit) must be globally accessible
+- Expose any functions that HTML needs as global: window.functionName = function() {...}"""
+            
+            elif markdown_tag == 'css':
+                prompt += """
+
+CRITICAL CSS INTEGRATION REQUIREMENTS:
+- Define classes that will actually be used in HTML elements
+- Ensure class names are descriptive and match the HTML structure
+- Focus on classes that correspond to the actual HTML elements in the project"""
+            
+            prompt += """
 
 CRITICAL: Return the code in this exact format:
 ```{markdown_tag}

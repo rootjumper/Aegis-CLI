@@ -76,6 +76,65 @@ class VerificationResult:
                 summary += f"{issue}\n"
         
         return summary
+    
+    def get_semantic_feedback(self) -> dict[str, Any]:
+        """Get semantic verification feedback for agent prompts.
+        
+        Returns:
+            Dictionary with categorized semantic issues and guidance
+        """
+        semantic_errors = [e for e in self.critical_errors if e.layer == 3]
+        
+        feedback = {
+            "has_semantic_errors": len(semantic_errors) > 0,
+            "error_count": len(semantic_errors),
+            "categories": {
+                "module_system": [],
+                "css_integration": [],
+                "form_handlers": [],
+                "cross_file": []
+            },
+            "guidance": []
+        }
+        
+        # Track which guidance has been added to avoid duplicates
+        guidance_added = set()
+        
+        for error in semantic_errors:
+            msg = error.message.lower()
+            
+            # Categorize errors
+            if "es6" in msg or "export" in msg or "module" in msg:
+                feedback["categories"]["module_system"].append(error.message)
+                if "module_system" not in guidance_added:
+                    feedback["guidance"].append(
+                        "Use type=\"module\" in <script> tags when JavaScript uses ES6 exports, "
+                        "OR use global functions (window.functionName) instead of exports"
+                    )
+                    guidance_added.add("module_system")
+            
+            elif "css" in msg or "class" in msg or "style" in msg:
+                feedback["categories"]["css_integration"].append(error.message)
+                if "css_integration" not in guidance_added:
+                    feedback["guidance"].append(
+                        "Ensure HTML elements use class attributes that match CSS selectors. "
+                        "CSS classes must be applied to HTML elements to have any visual effect."
+                    )
+                    guidance_added.add("css_integration")
+            
+            elif "form" in msg or "submit" in msg:
+                feedback["categories"]["form_handlers"].append(error.message)
+                if "form_handlers" not in guidance_added:
+                    feedback["guidance"].append(
+                        "Forms with submit buttons need submission handlers. "
+                        "Add onsubmit=\"return handleSubmit()\" to <form> tags or attach event listeners in JavaScript."
+                    )
+                    guidance_added.add("form_handlers")
+            
+            else:
+                feedback["categories"]["cross_file"].append(error.message)
+        
+        return feedback
 
 
 class HTMLReferenceExtractor(HTMLParser):
@@ -417,10 +476,17 @@ class CodeVerifier:
         require_pattern = r'require\([\'"]([^\'"]+)[\'"]\)'
         imports.extend(re.findall(require_pattern, content))
         
+        # Check for ES6 exports
+        has_es6_exports = bool(
+            re.search(r'\bexport\s+(?:default|(?:const|let|var|function|class)\s+\w+)', content) or
+            re.search(r'\bexport\s*\{[^}]+\}', content)
+        )
+        
         # Store in symbol table
         self.symbol_table[file_path] = {
             "imports": imports,
             "exports": exports,
+            "has_es6_exports": has_es6_exports,
             "language": "javascript"
         }
         
@@ -461,12 +527,24 @@ class CodeVerifier:
             ))
             return
         
+        # Extract script tag information including whether they're modules
+        script_tags = self._extract_script_tags(content)
+        
+        # Extract HTML classes and IDs used
+        html_selectors = self._extract_html_selectors(content)
+        
+        # Extract form elements
+        form_elements = self._extract_form_elements(content)
+        
         # Store in symbol table
         self.symbol_table[file_path] = {
             "scripts": parser.scripts,
             "stylesheets": parser.stylesheets,
             "images": parser.images,
             "functions_called": parser.functions_called,
+            "script_tags": script_tags,
+            "html_selectors": html_selectors,
+            "form_elements": form_elements,
             "language": "html"
         }
         
@@ -479,6 +557,106 @@ class CodeVerifier:
                 line_number=1,
                 message="Missing DOCTYPE declaration"
             ))
+    
+    def _extract_script_tags(self, content: str) -> list[dict[str, Any]]:
+        """Extract script tag information from HTML.
+        
+        Args:
+            content: HTML content
+            
+        Returns:
+            List of script tag info dicts with 'src' and 'is_module' keys
+        """
+        script_tags = []
+        # Match <script> tags with optional type attribute
+        script_pattern = r'<script\s+([^>]*?)(?:src=["\']([^"\']+)["\'])?([^>]*?)>'
+        
+        for match in re.finditer(script_pattern, content, re.IGNORECASE):
+            attrs_before = match.group(1)
+            src = match.group(2)
+            attrs_after = match.group(3)
+            
+            # Combine all attributes
+            all_attrs = f"{attrs_before} {attrs_after}"
+            
+            # Check if it's a module
+            is_module = 'type="module"' in all_attrs or "type='module'" in all_attrs
+            
+            if src:
+                script_tags.append({
+                    "src": src,
+                    "is_module": is_module
+                })
+        
+        return script_tags
+    
+    def _extract_html_selectors(self, content: str) -> dict[str, list[str]]:
+        """Extract classes and IDs used in HTML.
+        
+        Args:
+            content: HTML content
+            
+        Returns:
+            Dict with 'classes' and 'ids' lists
+        """
+        # Extract class attributes
+        class_pattern = r'class=["\']([^"\']+)["\']'
+        classes = []
+        for match in re.finditer(class_pattern, content):
+            # Split by whitespace to get individual classes
+            classes.extend(match.group(1).split())
+        
+        # Extract id attributes
+        id_pattern = r'id=["\']([^"\']+)["\']'
+        ids = [match.group(1) for match in re.finditer(id_pattern, content)]
+        
+        return {
+            "classes": list(set(classes)),  # Remove duplicates
+            "ids": list(set(ids))
+        }
+    
+    def _extract_form_elements(self, content: str) -> dict[str, Any]:
+        """Extract form elements and their submission handlers.
+        
+        Args:
+            content: HTML content
+            
+        Returns:
+            Dict with form information
+        """
+        forms = []
+        
+        # Find form tags
+        form_pattern = r'<form\s+([^>]*?)>'
+        for match in re.finditer(form_pattern, content, re.IGNORECASE):
+            attrs = match.group(1)
+            
+            # Check for onsubmit handler
+            has_onsubmit = 'onsubmit=' in attrs.lower()
+            
+            # Extract form ID if present
+            id_match = re.search(r'id=["\']([^"\']+)["\']', attrs)
+            form_id = id_match.group(1) if id_match else None
+            
+            forms.append({
+                "id": form_id,
+                "has_onsubmit": has_onsubmit,
+                "has_submit_button": False  # Will be updated below
+            })
+        
+        # Check for submit buttons
+        submit_pattern = r'<(?:button|input)\s+([^>]*?)type=["\']?submit["\']?([^>]*?)>'
+        has_submit_buttons = len(re.findall(submit_pattern, content, re.IGNORECASE)) > 0
+        
+        # Update forms with submit button info
+        for form in forms:
+            form["has_submit_button"] = has_submit_buttons
+        
+        return {
+            "forms": forms,
+            "has_forms": len(forms) > 0,
+            "has_submit_buttons": has_submit_buttons
+        }
     
     def _verify_css_static(
         self,
@@ -576,6 +754,15 @@ class CodeVerifier:
                             auto_fixable=True
                         ))
                 
+                # NEW: Check for ES6 module export mismatch
+                self._verify_js_module_compatibility(file_path, symbols, result)
+                
+                # NEW: Check for HTML-CSS class mismatch
+                self._verify_html_css_integration(file_path, symbols, result)
+                
+                # NEW: Check for form submission handlers
+                self._verify_form_handlers(file_path, symbols, result)
+                
                 # Verify functions called in event handlers exist in referenced JS files
                 for func_name, line_num in symbols.get("functions_called", []):
                     # Check if function exists in any referenced JS file
@@ -591,12 +778,13 @@ class CodeVerifier:
                                 break
                     
                     if not function_found and js_files:
-                        result.warnings.append(VerificationIssue(
-                            severity="warning",
+                        result.issues.append(VerificationIssue(
+                            severity="error",
                             layer=3,
                             file_path=file_path,
                             line_number=line_num,
-                            message=f"Function '{func_name}()' called but not found in referenced JS files"
+                            message=f"Function '{func_name}()' called in HTML but not found in referenced JavaScript files. Functions must be globally accessible (not ES6 exports) or HTML must use type=\"module\".",
+                            auto_fixable=True
                         ))
         
         # Check Python imports
@@ -626,6 +814,156 @@ class CodeVerifier:
                                 line_number=None,
                                 message=f"Import '{import_name}' not found in project (may be external dependency)"
                             ))
+    
+    def _verify_js_module_compatibility(
+        self,
+        html_file_path: str,
+        html_symbols: dict[str, Any],
+        result: VerificationResult
+    ) -> None:
+        """Verify JavaScript module compatibility with HTML script loading.
+        
+        Detects when JavaScript uses ES6 exports but HTML loads it without type="module".
+        
+        Args:
+            html_file_path: Path to HTML file
+            html_symbols: Symbol table entry for HTML file
+            result: VerificationResult to append issues to
+        """
+        script_tags = html_symbols.get("script_tags", [])
+        
+        for script_tag in script_tags:
+            src = script_tag["src"]
+            is_module = script_tag["is_module"]
+            
+            # Resolve the JS file
+            resolved_js = self._resolve_reference(html_file_path, src)
+            if not resolved_js or resolved_js not in self.symbol_table:
+                continue
+            
+            js_symbols = self.symbol_table[resolved_js]
+            has_es6_exports = js_symbols.get("has_es6_exports", False)
+            
+            # Issue 3 from problem statement: ES6 exports without type="module"
+            if has_es6_exports and not is_module:
+                result.issues.append(VerificationIssue(
+                    severity="error",
+                    layer=3,
+                    file_path=html_file_path,
+                    line_number=None,
+                    message=f"JavaScript file '{src}' uses ES6 exports but is loaded without type=\"module\". "
+                            f"Either add type=\"module\" to the <script> tag or use global functions instead of exports.",
+                    auto_fixable=True
+                ))
+    
+    def _verify_html_css_integration(
+        self,
+        html_file_path: str,
+        html_symbols: dict[str, Any],
+        result: VerificationResult
+    ) -> None:
+        """Verify CSS classes are actually used in HTML.
+        
+        Detects when CSS defines classes but HTML doesn't use them.
+        
+        Args:
+            html_file_path: Path to HTML file
+            html_symbols: Symbol table entry for HTML file
+            result: VerificationResult to append issues to
+        """
+        # Get HTML selectors
+        html_selectors = html_symbols.get("html_selectors", {})
+        html_classes = set(html_selectors.get("classes", []))
+        html_ids = set(html_selectors.get("ids", []))
+        
+        # Get referenced CSS files
+        css_refs = html_symbols.get("stylesheets", [])
+        
+        for css_ref in css_refs:
+            resolved_css = self._resolve_reference(html_file_path, css_ref)
+            if not resolved_css or resolved_css not in self.symbol_table:
+                continue
+            
+            css_symbols = self.symbol_table[resolved_css]
+            css_selectors = css_symbols.get("selectors", [])
+            
+            # Extract class selectors from CSS (those starting with .)
+            css_classes = set()
+            css_ids = set()
+            
+            for selector in css_selectors:
+                # Extract classes (starting with .)
+                class_matches = re.findall(r'\.([a-zA-Z][\w-]*)', selector)
+                css_classes.update(class_matches)
+                
+                # Extract IDs (starting with #)
+                id_matches = re.findall(r'#([a-zA-Z][\w-]*)', selector)
+                css_ids.update(id_matches)
+            
+            # Issue 2 from problem statement: CSS classes defined but not used
+            unused_classes = css_classes - html_classes
+            if unused_classes and len(css_classes) > 0:
+                # Only report if there are significant unused classes
+                # Allow some tolerance for utility classes
+                unused_ratio = len(unused_classes) / len(css_classes)
+                if unused_ratio > 0.5:  # More than 50% unused
+                    result.issues.append(VerificationIssue(
+                        severity="error",
+                        layer=3,
+                        file_path=html_file_path,
+                        line_number=None,
+                        message=f"CSS file '{css_ref}' defines classes ({', '.join(list(unused_classes)[:5])}) "
+                                f"that are not used in HTML. HTML elements need matching CSS classes to be styled.",
+                        auto_fixable=True
+                    ))
+            
+            # Check for HTML elements without any classes when CSS expects them
+            if len(css_classes) > 2 and len(html_classes) == 0:
+                result.issues.append(VerificationIssue(
+                    severity="error",
+                    layer=3,
+                    file_path=html_file_path,
+                    line_number=None,
+                    message=f"CSS file '{css_ref}' defines {len(css_classes)} classes but HTML uses none. "
+                            f"Add class attributes to HTML elements to apply styles.",
+                    auto_fixable=True
+                ))
+    
+    def _verify_form_handlers(
+        self,
+        html_file_path: str,
+        html_symbols: dict[str, Any],
+        result: VerificationResult
+    ) -> None:
+        """Verify form elements have submission handlers.
+        
+        Detects when forms have submit buttons but no submission handler.
+        
+        Args:
+            html_file_path: Path to HTML file
+            html_symbols: Symbol table entry for HTML file
+            result: VerificationResult to append issues to
+        """
+        form_elements = html_symbols.get("form_elements", {})
+        forms = form_elements.get("forms", [])
+        
+        # Issue 1 from problem statement: Form without handlers
+        for form in forms:
+            if form.get("has_submit_button") and not form.get("has_onsubmit"):
+                # Check if there are any event listeners attached via JavaScript
+                # For now, we'll just warn about missing inline handlers
+                # A more sophisticated check would look for addEventListener in JS
+                
+                form_id = form.get("id", "unnamed form")
+                result.issues.append(VerificationIssue(
+                    severity="error",
+                    layer=3,
+                    file_path=html_file_path,
+                    line_number=None,
+                    message=f"Form {form_id} has submit button but no submission handler. "
+                            f"Add onsubmit=\"return handleSubmit()\" or attach event listener in JavaScript.",
+                    auto_fixable=True
+                ))
     
     def _resolve_reference(self, source_file: str, reference: str) -> str | None:
         """Resolve a file reference from source file.
