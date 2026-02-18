@@ -21,6 +21,7 @@ from aegis.core.workspace import WorkspaceManager
 from aegis.core.llm_response_parser import LLMResponseParser
 from aegis.tools.registry import get_registry
 from aegis.core.llm_logger import LLMLogger
+from aegis.core.code_verifier import verify_generated_code, VerificationResult
 
 
 class OrchestratorAgent(BaseAgent):
@@ -120,6 +121,94 @@ class OrchestratorAgent(BaseAgent):
         context["has_tests"] = any("test" in f for f in workspace_info.get("files", []))
         
         return context
+    
+    async def _attempt_fix_verification_issues(
+        self,
+        verification_result: VerificationResult,
+        plan: dict,
+        workspace: Path,
+        workspace_name: str,
+        original_description: str,
+        context: dict,
+        coder
+    ) -> bool:
+        """Attempt to fix verification issues by regenerating problematic files.
+        
+        Args:
+            verification_result: Verification result with issues
+            plan: Execution plan
+            workspace: Workspace path
+            workspace_name: Workspace name
+            original_description: Original user request
+            context: Context dictionary
+            coder: CoderAgent instance
+        
+        Returns:
+            True if fixes were attempted, False otherwise
+        """
+        # Get critical errors that need fixing
+        critical_errors = verification_result.critical_errors
+        
+        if not critical_errors:
+            return False
+        
+        # Group errors by file
+        errors_by_file: dict[str, list[str]] = {}
+        for error in critical_errors:
+            file_path = error.file_path
+            if file_path not in errors_by_file:
+                errors_by_file[file_path] = []
+            errors_by_file[file_path].append(error.message)
+        
+        # Try to regenerate files with errors
+        for file_path, error_messages in errors_by_file.items():
+            # Find file spec in plan
+            file_spec = None
+            for spec in plan.get("files_to_create", []):
+                if spec["path"] == file_path:
+                    file_spec = spec
+                    break
+            
+            if not file_spec:
+                continue
+            
+            # Build error context for CoderAgent
+            error_context = "\n".join(f"  - {msg}" for msg in error_messages[:5])
+            
+            # Compute full workspace path
+            full_file_path = self.workspace_manager.get_workspace_path(file_path)
+            
+            # Find related files
+            related_files = self._find_related_files(file_path, plan)
+            
+            # Build description with error context
+            file_purpose = file_spec["purpose"]
+            full_description = f"{file_purpose} for {original_description}\n\nFIX THESE VERIFICATION ERRORS:\n{error_context}"
+            
+            # Create regeneration task
+            regen_task = AgentTask(
+                id=f"regen_{file_path}",
+                type="code",
+                payload={
+                    "description": full_description,
+                    "file_path": str(full_file_path),
+                    "context": {
+                        "workspace": workspace_name,
+                        "existing_files": context["workspace"].get("files", []),
+                        "plan": plan.get("reasoning", ""),
+                        "original_request": original_description,
+                        "all_files": plan.get("files_to_create", []),
+                        "related_files": related_files,
+                        "verification_errors": error_messages
+                    }
+                },
+                context={}
+            )
+            
+            # Regenerate code
+            await coder.process(regen_task)
+        
+        return True
     
     def _generate_workspace_name(self, description: str) -> str:
         """Generate a smart workspace name from task description.
@@ -525,16 +614,76 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                     errors=[f"Only {len(generated_files)}/{expected_files} files created"]
                 )
             
-            # Return success with workspace info
+            # PHASE 4: VERIFICATION with iteration (max 3 attempts)
+            max_verification_attempts = 3
+            verification_result = None
+            
+            for attempt in range(max_verification_attempts):
+                # Run verification
+                verification_result = verify_generated_code(
+                    workspace_path=workspace,
+                    file_specs=plan.get("files_to_create", [])
+                )
+                
+                # If verification passed, break out of loop
+                if verification_result.passed:
+                    break
+                
+                # If not the last attempt, try to fix issues
+                if attempt < max_verification_attempts - 1:
+                    # Try to auto-fix fixable issues or regenerate with error context
+                    fixed = await self._attempt_fix_verification_issues(
+                        verification_result,
+                        plan,
+                        workspace,
+                        workspace_name,
+                        original_description,
+                        context,
+                        coder
+                    )
+                    
+                    if not fixed:
+                        # If auto-fix failed, no point in retrying
+                        break
+            
+            # Build final response with verification info
+            verification_summary = verification_result.get_summary() if verification_result else "No verification performed"
+            
+            if verification_result and not verification_result.passed:
+                # Verification failed after all attempts
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "workspace": workspace_name,
+                        "workspace_path": str(workspace),
+                        "files_created": generated_files,
+                        "plan": plan,
+                        "verification": {
+                            "passed": False,
+                            "critical_errors": len(verification_result.critical_errors),
+                            "warnings": len(verification_result.warnings),
+                            "summary": verification_summary
+                        }
+                    },
+                    reasoning_trace=f"Created {len(generated_files)} files but verification failed:\n{verification_summary}",
+                    errors=[f"Verification failed with {len(verification_result.critical_errors)} critical errors"]
+                )
+            
+            # Return success with workspace info and verification results
             return AgentResponse(
                 status="SUCCESS",
                 data={
                     "workspace": workspace_name,
                     "workspace_path": str(workspace),
                     "files_created": generated_files,
-                    "plan": plan
+                    "plan": plan,
+                    "verification": {
+                        "passed": True,
+                        "warnings": len(verification_result.warnings) if verification_result else 0,
+                        "summary": verification_summary
+                    }
                 },
-                reasoning_trace=f"Created {len(generated_files)} files in workspace '{workspace_name}'"
+                reasoning_trace=f"Created {len(generated_files)} files in workspace '{workspace_name}' - All verification checks passed!"
             )
             
         except Exception as e:
@@ -735,7 +884,7 @@ Return the tasks in order of execution priority."""
         """
         return """You are the Orchestrator Agent for Aegis-CLI.
 
-Your role: Coordinate complex tasks using a three-phase approach:
+Your role: Coordinate complex tasks using a four-phase approach:
 
 PHASE 1: PLANNING (You have tools here!)
 - Use filesystem tools to check existing files
@@ -757,6 +906,13 @@ PHASE 3: EXECUTION
 - Coordinate file operations
 - Run tests and verification
 
+PHASE 4: VERIFICATION (NEW!)
+- Verify file structure (all files exist, have content)
+- Check static code (syntax, imports, dependencies)
+- Validate semantics (cross-file references work)
+- Attempt auto-fix for common issues
+- Iterate up to 3 times if verification fails
+
 WORKSPACE MANAGEMENT:
 - Create new workspace: workspaces/<feature_name>/
 - Or use existing workspace
@@ -776,6 +932,7 @@ REMEMBER:
 - Provide rich context to specialist agents
 - Organize output in workspaces
 - Track dependencies between files
+- Verify code quality before returning to user
 """
     
     def get_required_tools(self) -> list[str]:
