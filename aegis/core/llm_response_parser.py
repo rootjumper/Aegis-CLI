@@ -575,6 +575,10 @@ class LLMResponseParser:
         Returns:
             Tuple of (is_valid, error_message)
         """
+        # Check for empty/whitespace code first (applies to all languages)
+        if not code or not code.strip():
+            return False, "Code is empty"
+        
         # Only validate Python code with AST parser
         # For other languages, we skip validation as we don't have parsers
         if language in ('python', 'py'):
@@ -586,11 +590,7 @@ class LLMResponseParser:
             except Exception as e:
                 return False, f"Validation error: {str(e)}"
         
-        # For non-Python languages, perform basic sanity checks
-        if not code or not code.strip():
-            return False, "Code is empty"
-        
-        # Code looks valid (no language-specific validation available)
+        # Code looks valid for non-Python languages
         return True, ""
     
     def get_stats(self) -> dict:
