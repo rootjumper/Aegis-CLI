@@ -162,7 +162,7 @@ class CoderAgent(BaseAgent):
                 for file_spec in all_files:
                     file_structure_info += f"  - {file_spec['path']}: {file_spec['purpose']}\n"
             
-            # Build language-specific prompt
+            # Build language-specific prompt with consistent f-string formatting
             prompt = f"""Generate {language_name} code for: {description}
 
 ORIGINAL REQUEST: {original_task}
@@ -170,13 +170,8 @@ ORIGINAL REQUEST: {original_task}
 TARGET FILE: {file_path}
 
 CONTEXT:
-{json.dumps(context_info, indent=2) if context_info else 'No additional context'}"""
-
-            # Add file structure information if available
-            if file_structure_info:
-                prompt += file_structure_info
-            
-            prompt += f"""
+{json.dumps(context_info, indent=2) if context_info else 'No additional context'}
+{file_structure_info if file_structure_info else ''}
 
 REQUIREMENTS:
 - Generate clean, production-ready {language_name} code
