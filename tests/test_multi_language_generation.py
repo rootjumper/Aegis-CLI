@@ -119,6 +119,66 @@ async def test_coder_generates_javascript():
 
 @pytest.mark.asyncio
 @skip_if_no_llm
+async def test_coder_generates_typescript():
+    """Test that CoderAgent can generate TypeScript files."""
+    coder = CoderAgent()
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = os.path.join(tmpdir, "app.ts")
+        
+        task = AgentTask(
+            id="test-ts-1",
+            type="code",
+            payload={
+                "description": "Create a TypeScript interface for a User",
+                "file_path": file_path
+            },
+            context={}
+        )
+        
+        response = await coder.process(task)
+        
+        # Should succeed (not fail due to Python AST validation)
+        assert response.status == "SUCCESS", f"Expected SUCCESS but got {response.status}: {response.errors}"
+        assert "code" in response.data
+        
+        # Generated code should be present
+        code = response.data["code"]
+        assert len(code) > 0
+
+
+@pytest.mark.asyncio
+@skip_if_no_llm
+async def test_coder_generates_jsx():
+    """Test that CoderAgent can generate JSX files."""
+    coder = CoderAgent()
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = os.path.join(tmpdir, "Component.jsx")
+        
+        task = AgentTask(
+            id="test-jsx-1",
+            type="code",
+            payload={
+                "description": "Create a simple React component",
+                "file_path": file_path
+            },
+            context={}
+        )
+        
+        response = await coder.process(task)
+        
+        # Should succeed (not fail due to Python AST validation)
+        assert response.status == "SUCCESS", f"Expected SUCCESS but got {response.status}: {response.errors}"
+        assert "code" in response.data
+        
+        # Generated code should be present
+        code = response.data["code"]
+        assert len(code) > 0
+
+
+@pytest.mark.asyncio
+@skip_if_no_llm
 async def test_coder_still_validates_python():
     """Test that Python code is still validated with AST parser."""
     coder = CoderAgent()

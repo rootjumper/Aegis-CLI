@@ -198,7 +198,7 @@ No other text before or after the code block."""
                 finish_reason="stop"
             )
             
-            # Validate the extracted code (only for Python)
+            # Validate the extracted code with language-aware validation
             is_valid, validation_error = self.parser.validate_code(generated_code, language=markdown_tag)
             if not is_valid:
                 return AgentResponse(
