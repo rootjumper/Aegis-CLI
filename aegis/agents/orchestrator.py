@@ -344,6 +344,16 @@ Return a detailed JSON plan."""
             AgentResponse with results
         """
         try:
+            # Validate input early
+            description = task.payload.get('description', '').strip()
+            if not description:
+                return AgentResponse(
+                    status="FAIL",
+                    data={},
+                    reasoning_trace="Task description is empty or missing",
+                    errors=["No task description provided. Please specify what you want to create."]
+                )
+            
             # PHASE 1: PLANNING (with tools)
             context = await self._gather_context(task)
             plan = await self._create_execution_plan(task, context)
