@@ -97,33 +97,39 @@ class VerificationResult:
             "guidance": []
         }
         
+        # Track which guidance has been added to avoid duplicates
+        guidance_added = set()
+        
         for error in semantic_errors:
             msg = error.message.lower()
             
             # Categorize errors
             if "es6" in msg or "export" in msg or "module" in msg:
                 feedback["categories"]["module_system"].append(error.message)
-                if "type=\"module\"" not in [g for g in feedback["guidance"]]:
+                if "module_system" not in guidance_added:
                     feedback["guidance"].append(
                         "Use type=\"module\" in <script> tags when JavaScript uses ES6 exports, "
                         "OR use global functions (window.functionName) instead of exports"
                     )
+                    guidance_added.add("module_system")
             
             elif "css" in msg or "class" in msg or "style" in msg:
                 feedback["categories"]["css_integration"].append(error.message)
-                if "css-html" not in [g for g in feedback["guidance"]]:
+                if "css_integration" not in guidance_added:
                     feedback["guidance"].append(
                         "Ensure HTML elements use class attributes that match CSS selectors. "
                         "CSS classes must be applied to HTML elements to have any visual effect."
                     )
+                    guidance_added.add("css_integration")
             
             elif "form" in msg or "submit" in msg:
                 feedback["categories"]["form_handlers"].append(error.message)
-                if "form-handler" not in [g for g in feedback["guidance"]]:
+                if "form_handlers" not in guidance_added:
                     feedback["guidance"].append(
                         "Forms with submit buttons need submission handlers. "
                         "Add onsubmit=\"return handleSubmit()\" to <form> tags or attach event listeners in JavaScript."
                     )
+                    guidance_added.add("form_handlers")
             
             else:
                 feedback["categories"]["cross_file"].append(error.message)
