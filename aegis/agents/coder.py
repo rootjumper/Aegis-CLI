@@ -15,12 +15,45 @@ from aegis.core.llm_logger import LLMLogger
 class CoderAgent(BaseAgent):
     """Agent specialized in code generation.
     
-    Generates high-quality Python code with:
-    - Type annotations
-    - Docstrings
-    - PEP8 compliance
+    Generates high-quality code in multiple programming languages with:
+    - Type annotations (for Python)
+    - Proper documentation
+    - Language-specific best practices
     - Security best practices
     """
+    
+    # Language detection map for file extensions
+    _EXTENSION_MAP = {
+        '.py': ('Python', 'python'),
+        '.html': ('HTML', 'html'),
+        '.htm': ('HTML', 'html'),
+        '.css': ('CSS', 'css'),
+        '.js': ('JavaScript', 'javascript'),
+        '.mjs': ('JavaScript', 'javascript'),
+        '.ts': ('TypeScript', 'typescript'),
+        '.tsx': ('TypeScript TSX', 'tsx'),
+        '.jsx': ('React JSX', 'jsx'),
+        '.json': ('JSON', 'json'),
+        '.yaml': ('YAML', 'yaml'),
+        '.yml': ('YAML', 'yaml'),
+        '.md': ('Markdown', 'markdown'),
+        '.sql': ('SQL', 'sql'),
+        '.sh': ('Shell', 'bash'),
+        '.bash': ('Bash', 'bash'),
+        '.rs': ('Rust', 'rust'),
+        '.go': ('Go', 'go'),
+        '.java': ('Java', 'java'),
+        '.c': ('C', 'c'),
+        '.cpp': ('C++', 'cpp'),
+        '.h': ('C Header', 'c'),
+        '.hpp': ('C++ Header', 'cpp'),
+        '.cs': ('C#', 'csharp'),
+        '.rb': ('Ruby', 'ruby'),
+        '.php': ('PHP', 'php'),
+        '.swift': ('Swift', 'swift'),
+        '.kt': ('Kotlin', 'kotlin'),
+        '.xml': ('XML', 'xml'),
+    }
     
     def __init__(self, model: Model | None = None, verbose: bool = False) -> None:
         """Initialize the coder agent.
@@ -34,6 +67,29 @@ class CoderAgent(BaseAgent):
         self.parser = LLMResponseParser(strict=False, log_failures=True)
         self.llm_logger = LLMLogger(verbose=verbose)
     
+    def _detect_language_from_path(self, file_path: str) -> tuple[str, str]:
+        """Detect programming language and markdown tag from file path.
+        
+        Args:
+            file_path: Path to file being generated
+            
+        Returns:
+            Tuple of (language_name, markdown_tag)
+            
+        Examples:
+            "src/app.py" → ("Python", "python")
+            "index.html" → ("HTML", "html")
+            "styles.css" → ("CSS", "css")
+            "script.js" → ("JavaScript", "javascript")
+        """
+        from pathlib import Path
+        
+        if not file_path:
+            return ('Python', 'python')
+        
+        ext = Path(file_path).suffix.lower()
+        return self._EXTENSION_MAP.get(ext, ('Python', 'python'))
+    
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a code generation task using LLM.
         
@@ -44,12 +100,14 @@ class CoderAgent(BaseAgent):
             AgentResponse with generated code
         """
         from pydantic_ai import Agent as PydanticAgent
-        from aegis.core.tool_bridge import create_toolset_from_registry
+        import json
         
         try:
             # Get task details
             description = task.payload.get("description", "").strip()
             file_path = task.payload.get("file_path", "")
+            context_info = task.payload.get("context", {})
+            original_task = context_info.get("original_request", description)
             
             # Validate description
             if not description:
@@ -65,8 +123,35 @@ class CoderAgent(BaseAgent):
             test_feedback = task.context.get("test_feedback", [])
             review_feedback = task.context.get("review_feedback", [])
             
-            # Build comprehensive prompt with feedback
-            prompt = f"Generate Python code: {description}"
+            # Detect language from file path
+            language_name, markdown_tag = self._detect_language_from_path(file_path)
+            
+            # Build language-specific prompt
+            prompt = f"""Generate {language_name} code for: {description}
+
+ORIGINAL REQUEST: {original_task}
+
+TARGET FILE: {file_path}
+
+CONTEXT:
+{json.dumps(context_info, indent=2) if context_info else 'No additional context'}
+
+REQUIREMENTS:
+- Generate clean, production-ready {language_name} code
+- Return ONLY the code itself
+- Wrap in markdown code block: ```{markdown_tag}
+... your {language_name} code here ...
+```
+- Do NOT use tool calls
+- Do NOT save files yourself
+- Do NOT include explanations outside the code block
+
+CRITICAL: Return the code in this exact format:
+```{markdown_tag}
+// Your complete {language_name} code here
+```
+
+No other text before or after the code block."""
             
             if previous_attempt:
                 prompt += "\n\nThis is a retry. Previous attempt did not meet requirements."
@@ -79,14 +164,13 @@ class CoderAgent(BaseAgent):
                 feedback_str = "\n".join(f"- {fb}" for fb in review_feedback[:5])
                 prompt += f"\n\n**Review Comments to Address:**\n{feedback_str}"
             
-            # Get model and tools
+            # Get model (NO TOOLS)
             model = self.get_model()
-            toolset = create_toolset_from_registry(self.registry)
             
-            # Create PydanticAI agent with tools
+            # Create PydanticAI agent WITHOUT tools
             pydantic_agent = PydanticAgent(
                 model=model,
-                tools=toolset,
+                # NO tools - CoderAgent is text generation only
                 system_prompt=self.get_system_prompt()
             )
             
@@ -96,7 +180,7 @@ class CoderAgent(BaseAgent):
                 prompt=prompt,
                 model=str(model),
                 system_prompt=self.get_system_prompt(),
-                tools=toolset
+                tools=[]  # No tools - text generation only
             )
             
             # Generate code using LLM
@@ -203,33 +287,87 @@ class CoderAgent(BaseAgent):
         return True
     
     def get_system_prompt(self) -> str:
-        """Get system prompt for coder.
+        """Get system prompt for code generation.
         
         Returns:
-            System prompt
+            System prompt emphasizing multi-language support.
         """
         return """You are the Coder Agent for Aegis-CLI.
 
-Your role is to generate high-quality Python code that:
-- Uses type hints (Python 3.11+ with | syntax)
-- Includes comprehensive docstrings (Google style)
-- Follows PEP8 strictly
-- Implements security best practices:
-  * No eval() or exec()
-  * No hardcoded secrets
-  * Input validation
-  * Proper error handling
-- Uses async/await where appropriate
-- Prefers smart_patch for surgical edits over full rewrites
+Your role is to generate high-quality code in ANY programming language based on requirements.
 
-Before coding:
-1. Request context via ContextTool if needed
-2. Analyze requirements thoroughly
-3. Consider edge cases and error handling
+SUPPORTED LANGUAGES:
+- Python, JavaScript, TypeScript, HTML, CSS
+- Go, Rust, Java, C, C++, C#
+- Ruby, PHP, Swift, Kotlin
+- SQL, Shell scripts, and more
+
+CODE QUALITY STANDARDS:
+
+For Python:
+- Use type hints (Python 3.11+ with | syntax)
+- Include comprehensive docstrings (Google style)
+- Follow PEP8 strictly
+
+For JavaScript/TypeScript:
+- Use modern ES6+ syntax
+- Include JSDoc comments for functions
+- Follow standard conventions
+
+For HTML:
+- Use semantic HTML5 tags
+- Include accessibility attributes (ARIA, alt, role, etc.)
+- Proper document structure
+
+For CSS:
+- Use modern CSS3 features
+- Follow naming conventions (BEM or similar)
+- Include comments for complex selectors
+
+For all languages:
+- Implement security best practices
+- Add input validation where appropriate
+- Include proper error handling
+- Write clean, readable code
+- Add comments for complex logic
+- Use meaningful variable/function names
+
+CRITICAL RULES:
+1. ❌ DO NOT use tool calls
+2. ❌ DO NOT try to save files
+3. ❌ DO NOT use eval(), exec(), or dangerous functions
+4. ❌ DO NOT hardcode secrets or credentials
+5. ✅ ALWAYS return code in markdown code blocks
+6. ✅ ALWAYS use the correct language tag (```python, ```javascript, ```html, etc.)
+7. ✅ ALWAYS return ONLY code, no explanations before/after
+
+OUTPUT FORMAT:
+Return ONLY the code in a markdown code block. No text before or after.
+
+Example for JavaScript:
+```javascript
+function calculateSum(a, b) {
+    return a + b;
+}
+```
+
+Example for HTML:
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Example</title>
+</head>
+<body>
+    <h1>Hello World</h1>
+</body>
+</html>
+```
 
 If you receive feedback from Tester or Critic:
 - Address ALL issues before proceeding
-- Explain your fixes in the reasoning trace
+- Explain your fixes in code comments
 - Don't repeat the same mistakes
 """
     

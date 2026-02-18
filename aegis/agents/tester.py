@@ -46,7 +46,6 @@ class TesterAgent(BaseAgent):
             AgentResponse with test results
         """
         from pydantic_ai import Agent as PydanticAgent
-        from aegis.core.tool_bridge import create_toolset_from_registry
         
         try:
             # Get task details
@@ -66,14 +65,13 @@ class TesterAgent(BaseAgent):
             
             # Generate test if needed using LLM
             if not test_path:
-                # Get model and tools
+                # Get model (NO TOOLS)
                 model = self.get_model()
-                toolset = create_toolset_from_registry(self.registry)
                 
-                # Create PydanticAI agent
+                # Create PydanticAI agent WITHOUT tools
                 pydantic_agent = PydanticAgent(
                     model=model,
-                    tools=toolset,
+                    # NO tools - TesterAgent is text generation only
                     system_prompt=self.get_system_prompt()
                 )
                 
@@ -99,7 +97,7 @@ Return ONLY the test code, no explanations."""
                     prompt=test_prompt,
                     model=str(model),
                     system_prompt=self.get_system_prompt(),
-                    tools=toolset
+                    tools=[]  # No tools - text generation only
                 )
                 
                 # Generate tests using LLM
