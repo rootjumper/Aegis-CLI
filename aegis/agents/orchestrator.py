@@ -259,7 +259,7 @@ Return a detailed JSON plan."""
             agent_name="OrchestratorAgent (Planning)",
             prompt=planning_prompt,
             model=str(self.get_model()),
-            system_prompt=planning_agent.system_prompt,
+            system_prompt=planning_agent.system_prompt(),
             tools=toolset
         )
         
@@ -361,21 +361,30 @@ Return a detailed JSON plan."""
             
             generated_files = []
             
+            # Get original user request for context
+            original_description = task.payload.get("description", "")
+            
             for file_spec in plan.get("files_to_create", []):
                 file_path = file_spec["path"]
                 file_purpose = file_spec["purpose"]
+                
+                # Build rich description combining original request and file purpose
+                full_description = f"{file_purpose}"
+                if original_description and file_purpose != original_description:
+                    full_description = f"{file_purpose} for {original_description}"
                 
                 # Create task for CoderAgent with rich context
                 code_task = AgentTask(
                     id=f"{task.id}_code_{len(generated_files)}",
                     type="code",
                     payload={
-                        "description": file_purpose,
+                        "description": full_description,
                         "file_path": file_path,
                         "context": {
                             "workspace": workspace_name,
                             "existing_files": context["workspace"].get("files", []),
-                            "plan": plan.get("reasoning", "")
+                            "plan": plan.get("reasoning", ""),
+                            "original_request": original_description
                         }
                     },
                     context=task.context
@@ -409,6 +418,37 @@ Return a detailed JSON plan."""
                             "full_path": str(full_path),
                             "purpose": file_purpose
                         })
+            
+            # Check if any files were created
+            if len(generated_files) == 0:
+                expected_files = len(plan.get("files_to_create", []))
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "workspace": workspace_name,
+                        "workspace_path": str(workspace),
+                        "files_created": [],
+                        "plan": plan
+                    },
+                    reasoning_trace=f"Failed to create any files. Expected {expected_files} files.",
+                    errors=[f"No files were created out of {expected_files} planned"]
+                )
+            
+            # Check if all files were created
+            expected_files = len(plan.get("files_to_create", []))
+            if len(generated_files) < expected_files:
+                # Partial success
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "workspace": workspace_name,
+                        "workspace_path": str(workspace),
+                        "files_created": generated_files,
+                        "plan": plan
+                    },
+                    reasoning_trace=f"Created {len(generated_files)}/{expected_files} files in workspace '{workspace_name}'",
+                    errors=[f"Only {len(generated_files)}/{expected_files} files created"]
+                )
             
             # Return success with workspace info
             return AgentResponse(
