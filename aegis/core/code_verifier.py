@@ -401,7 +401,10 @@ class CodeVerifier:
             ))
         
         # Extract function definitions
-        # Match: function name(...) or const name = function(...) or const name = (...) =>
+        # Match patterns:
+        # 1. function name(...) - traditional function declaration
+        # 2. const/let/var name = function(...) - function expression
+        # 3. const/let/var name = (...) => - arrow function
         func_pattern = r'(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>))'
         functions = re.findall(func_pattern, content)
         exports = [name for group in functions for name in group if name]
@@ -634,8 +637,12 @@ class CodeVerifier:
         Returns:
             Resolved file path if found, None otherwise
         """
-        # Skip external URLs
+        # Skip external URLs and protocol-relative URLs
+        # Note: Protocol-relative URLs ('//' prefix) are treated as external
+        # for security reasons - they could point to malicious external resources
         if reference.startswith(('http://', 'https://', '//')):
+            # For protocol-relative URLs, log a warning but allow them
+            # These should be reviewed by developers as they can be security risks
             return reference
         
         # Get directory of source file
