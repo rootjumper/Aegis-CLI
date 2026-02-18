@@ -343,3 +343,150 @@ def test_log_prompt_with_empty_tools_list():
             content = f.read()
             # Should indicate text-based mode
             assert "TOOLS: None (text-based mode)" in content
+
+
+def test_extract_tool_calls_from_response():
+    """Test extracting tool calls from PydanticAI response."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        # Create a mock response object with tool calls
+        class MockToolCall:
+            def __init__(self, name, arguments, tool_id="test_id"):
+                self.id = tool_id
+                self.name = name
+                self.arguments = arguments
+        
+        class MockMessage:
+            def __init__(self):
+                self.tool_calls = [
+                    MockToolCall(
+                        "filesystem",
+                        '{"action": "write_file", "path": "/tmp/test.py", "content": "print(1)"}',
+                        "call_123"
+                    ),
+                    MockToolCall(
+                        "shell",
+                        {"command": "pytest", "timeout": 30},
+                        "call_456"
+                    )
+                ]
+        
+        class MockResponse:
+            def all_messages(self):
+                return [MockMessage()]
+        
+        mock_response = MockResponse()
+        tool_calls = logger._extract_tool_calls_from_response(mock_response)
+        
+        # Should extract 2 tool calls
+        assert len(tool_calls) == 2
+        
+        # First tool call
+        assert tool_calls[0]['name'] == 'filesystem'
+        assert tool_calls[0]['id'] == 'call_123'
+        assert 'parameters' in tool_calls[0]
+        assert tool_calls[0]['parameters']['action'] == 'write_file'
+        assert tool_calls[0]['parameters']['path'] == '/tmp/test.py'
+        
+        # Second tool call
+        assert tool_calls[1]['name'] == 'shell'
+        assert tool_calls[1]['id'] == 'call_456'
+        assert 'parameters' in tool_calls[1]
+        assert tool_calls[1]['parameters']['command'] == 'pytest'
+        assert tool_calls[1]['parameters']['timeout'] == 30
+
+
+def test_log_response_auto_extracts_tool_calls():
+    """Test that log_response automatically extracts tool calls from response."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        # Create mock response with tool calls
+        class MockToolCall:
+            def __init__(self):
+                self.id = "call_789"
+                self.name = "filesystem"
+                self.arguments = {"action": "read_file", "path": "/tmp/test.py"}
+        
+        class MockPart:
+            def __init__(self):
+                self.content = "Test response content"
+        
+        class MockMessage:
+            def __init__(self):
+                self.tool_calls = [MockToolCall()]
+                self.parts = [MockPart()]
+        
+        class MockResponse:
+            def all_messages(self):
+                return [MockMessage()]
+        
+        interaction_id = logger.log_prompt(
+            agent_name="TestAgent",
+            prompt="Test prompt",
+            model="test-model"
+        )
+        
+        mock_response = MockResponse()
+        
+        # Call log_response WITHOUT explicitly passing tool_calls
+        # It should auto-extract them from the response
+        logger.log_response(
+            interaction_id=interaction_id,
+            agent_name="TestAgent",
+            response=mock_response,
+            finish_reason="stop"
+        )
+        
+        # Check log file content
+        with open(logger.session_log, 'r') as f:
+            content = f.read()
+            # Should contain tool call information
+            assert "TOOL CALLS (1)" in content
+            assert "Name: filesystem" in content
+            assert "ID: call_789" in content
+            assert "action" in content
+            assert "read_file" in content
+            assert "/tmp/test.py" in content
+
+
+def test_log_response_with_no_tool_calls():
+    """Test that log_response handles responses with no tool calls."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        # Create mock response without tool calls
+        class MockPart:
+            def __init__(self):
+                self.content = "Test response content"
+        
+        class MockMessage:
+            def __init__(self):
+                self.parts = [MockPart()]
+                # No tool_calls attribute
+        
+        class MockResponse:
+            def all_messages(self):
+                return [MockMessage()]
+        
+        interaction_id = logger.log_prompt(
+            agent_name="TestAgent",
+            prompt="Test prompt",
+            model="test-model"
+        )
+        
+        mock_response = MockResponse()
+        
+        logger.log_response(
+            interaction_id=interaction_id,
+            agent_name="TestAgent",
+            response=mock_response,
+            finish_reason="stop"
+        )
+        
+        # Check log file content
+        with open(logger.session_log, 'r') as f:
+            content = f.read()
+            # Should indicate no tool calls
+            assert "TOOL CALLS: None (text-based response)" in content
