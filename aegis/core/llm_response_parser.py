@@ -564,23 +564,34 @@ class LLMResponseParser:
         
         return cleaned.strip()
     
-    def validate_code(self, code: str) -> tuple[bool, str]:
+    def validate_code(self, code: str, language: str = 'python') -> tuple[bool, str]:
         """
-        Validate Python code syntax.
+        Validate code syntax based on language.
         
         Args:
-            code: Python code to validate
+            code: Code to validate
+            language: Programming language (default: 'python')
         
         Returns:
             Tuple of (is_valid, error_message)
         """
-        try:
-            ast.parse(code)
-            return True, ""
-        except SyntaxError as e:
-            return False, f"Syntax error at line {e.lineno}: {e.msg}"
-        except Exception as e:
-            return False, f"Validation error: {str(e)}"
+        # Check for empty/whitespace code first (applies to all languages)
+        if not code or not code.strip():
+            return False, "Code is empty"
+        
+        # Only validate Python code with AST parser
+        # For other languages, we skip validation as we don't have parsers
+        if language in ('python', 'py'):
+            try:
+                ast.parse(code)
+                return True, ""
+            except SyntaxError as e:
+                return False, f"Syntax error at line {e.lineno}: {e.msg}"
+            except Exception as e:
+                return False, f"Validation error: {str(e)}"
+        
+        # Code looks valid for non-Python languages
+        return True, ""
     
     def get_stats(self) -> dict:
         """
