@@ -15,12 +15,45 @@ from aegis.core.llm_logger import LLMLogger
 class CoderAgent(BaseAgent):
     """Agent specialized in code generation.
     
-    Generates high-quality Python code with:
-    - Type annotations
-    - Docstrings
-    - PEP8 compliance
+    Generates high-quality code in multiple programming languages with:
+    - Type annotations (for Python)
+    - Proper documentation
+    - Language-specific best practices
     - Security best practices
     """
+    
+    # Language detection map for file extensions
+    _EXTENSION_MAP = {
+        '.py': ('Python', 'python'),
+        '.html': ('HTML', 'html'),
+        '.htm': ('HTML', 'html'),
+        '.css': ('CSS', 'css'),
+        '.js': ('JavaScript', 'javascript'),
+        '.mjs': ('JavaScript', 'javascript'),
+        '.ts': ('TypeScript', 'typescript'),
+        '.tsx': ('TypeScript TSX', 'tsx'),
+        '.jsx': ('React JSX', 'jsx'),
+        '.json': ('JSON', 'json'),
+        '.yaml': ('YAML', 'yaml'),
+        '.yml': ('YAML', 'yaml'),
+        '.md': ('Markdown', 'markdown'),
+        '.sql': ('SQL', 'sql'),
+        '.sh': ('Shell', 'bash'),
+        '.bash': ('Bash', 'bash'),
+        '.rs': ('Rust', 'rust'),
+        '.go': ('Go', 'go'),
+        '.java': ('Java', 'java'),
+        '.c': ('C', 'c'),
+        '.cpp': ('C++', 'cpp'),
+        '.h': ('C Header', 'c'),
+        '.hpp': ('C++ Header', 'cpp'),
+        '.cs': ('C#', 'csharp'),
+        '.rb': ('Ruby', 'ruby'),
+        '.php': ('PHP', 'php'),
+        '.swift': ('Swift', 'swift'),
+        '.kt': ('Kotlin', 'kotlin'),
+        '.xml': ('XML', 'xml'),
+    }
     
     def __init__(self, model: Model | None = None, verbose: bool = False) -> None:
         """Initialize the coder agent.
@@ -54,40 +87,8 @@ class CoderAgent(BaseAgent):
         if not file_path:
             return ('Python', 'python')
         
-        extension_map = {
-            '.py': ('Python', 'python'),
-            '.html': ('HTML', 'html'),
-            '.htm': ('HTML', 'html'),
-            '.css': ('CSS', 'css'),
-            '.js': ('JavaScript', 'javascript'),
-            '.mjs': ('JavaScript', 'javascript'),
-            '.ts': ('TypeScript', 'typescript'),
-            '.tsx': ('TypeScript TSX', 'tsx'),
-            '.jsx': ('React JSX', 'jsx'),
-            '.json': ('JSON', 'json'),
-            '.yaml': ('YAML', 'yaml'),
-            '.yml': ('YAML', 'yaml'),
-            '.md': ('Markdown', 'markdown'),
-            '.sql': ('SQL', 'sql'),
-            '.sh': ('Shell', 'bash'),
-            '.bash': ('Bash', 'bash'),
-            '.rs': ('Rust', 'rust'),
-            '.go': ('Go', 'go'),
-            '.java': ('Java', 'java'),
-            '.c': ('C', 'c'),
-            '.cpp': ('C++', 'cpp'),
-            '.h': ('C Header', 'c'),
-            '.hpp': ('C++ Header', 'cpp'),
-            '.cs': ('C#', 'csharp'),
-            '.rb': ('Ruby', 'ruby'),
-            '.php': ('PHP', 'php'),
-            '.swift': ('Swift', 'swift'),
-            '.kt': ('Kotlin', 'kotlin'),
-            '.xml': ('XML', 'xml'),
-        }
-        
         ext = Path(file_path).suffix.lower()
-        return extension_map.get(ext, ('Python', 'python'))
+        return self._EXTENSION_MAP.get(ext, ('Python', 'python'))
     
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a code generation task using LLM.
