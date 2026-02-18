@@ -255,11 +255,16 @@ Return a detailed JSON plan."""
         )
         
         # LOG PROMPT
+        # Extract system prompt from PydanticAgent (stored in _system_prompts tuple)
+        system_prompt_str = None
+        if hasattr(planning_agent, '_system_prompts') and planning_agent._system_prompts:
+            system_prompt_str = planning_agent._system_prompts[0]
+        
         interaction_id = self.llm_logger.log_prompt(
             agent_name="OrchestratorAgent (Planning)",
             prompt=planning_prompt,
             model=str(self.get_model()),
-            system_prompt=planning_agent.system_prompt(),
+            system_prompt=system_prompt_str,
             tools=toolset
         )
         
