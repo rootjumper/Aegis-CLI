@@ -255,11 +255,21 @@ Return a detailed JSON plan."""
         )
         
         # LOG PROMPT
+        # Extract system prompt from PydanticAgent for logging
+        # Note: Uses internal _system_prompts attribute as PydanticAI doesn't expose a public getter
+        system_prompt_str = None
+        try:
+            if hasattr(planning_agent, '_system_prompts') and planning_agent._system_prompts:
+                system_prompt_str = planning_agent._system_prompts[0]
+        except (AttributeError, IndexError, TypeError):
+            # Fallback to None if we can't extract the system prompt
+            system_prompt_str = None
+        
         interaction_id = self.llm_logger.log_prompt(
             agent_name="OrchestratorAgent (Planning)",
             prompt=planning_prompt,
             model=str(self.get_model()),
-            system_prompt=planning_agent.system_prompt,
+            system_prompt=system_prompt_str,
             tools=toolset
         )
         
@@ -339,6 +349,16 @@ Return a detailed JSON plan."""
             AgentResponse with results
         """
         try:
+            # Validate input early
+            description = task.payload.get('description', '').strip()
+            if not description:
+                return AgentResponse(
+                    status="FAIL",
+                    data={},
+                    reasoning_trace="Task description is empty or missing",
+                    errors=["No task description provided. Please specify what you want to create."]
+                )
+            
             # PHASE 1: PLANNING (with tools)
             context = await self._gather_context(task)
             plan = await self._create_execution_plan(task, context)
@@ -361,21 +381,33 @@ Return a detailed JSON plan."""
             
             generated_files = []
             
+            # Get original user request for context
+            original_description = task.payload.get("description", "")
+            
             for file_spec in plan.get("files_to_create", []):
                 file_path = file_spec["path"]
                 file_purpose = file_spec["purpose"]
+                
+                # Build rich description combining original request and file purpose
+                # Only append original description if it's not already the same as file_purpose
+                # to avoid redundant descriptions like "Product model for Create a Product model"
+                if original_description and file_purpose != original_description:
+                    full_description = f"{file_purpose} for {original_description}"
+                else:
+                    full_description = file_purpose
                 
                 # Create task for CoderAgent with rich context
                 code_task = AgentTask(
                     id=f"{task.id}_code_{len(generated_files)}",
                     type="code",
                     payload={
-                        "description": file_purpose,
+                        "description": full_description,
                         "file_path": file_path,
                         "context": {
                             "workspace": workspace_name,
                             "existing_files": context["workspace"].get("files", []),
-                            "plan": plan.get("reasoning", "")
+                            "plan": plan.get("reasoning", ""),
+                            "original_request": original_description
                         }
                     },
                     context=task.context
@@ -409,6 +441,37 @@ Return a detailed JSON plan."""
                             "full_path": str(full_path),
                             "purpose": file_purpose
                         })
+            
+            # Check if files were created successfully
+            expected_files = len(plan.get("files_to_create", []))
+            
+            if len(generated_files) == 0:
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "workspace": workspace_name,
+                        "workspace_path": str(workspace),
+                        "files_created": [],
+                        "plan": plan
+                    },
+                    reasoning_trace=f"Failed to create any files. Expected {expected_files} files.",
+                    errors=[f"No files were created out of {expected_files} planned"]
+                )
+            
+            # Check if all files were created
+            if len(generated_files) < expected_files:
+                # Partial file creation is treated as failure - some files missing
+                return AgentResponse(
+                    status="FAIL",
+                    data={
+                        "workspace": workspace_name,
+                        "workspace_path": str(workspace),
+                        "files_created": generated_files,
+                        "plan": plan
+                    },
+                    reasoning_trace=f"Created {len(generated_files)}/{expected_files} files in workspace '{workspace_name}'",
+                    errors=[f"Only {len(generated_files)}/{expected_files} files created"]
+                )
             
             # Return success with workspace info
             return AgentResponse(

@@ -48,8 +48,17 @@ class CoderAgent(BaseAgent):
         
         try:
             # Get task details
-            description = task.payload.get("description", "")
+            description = task.payload.get("description", "").strip()
             file_path = task.payload.get("file_path", "")
+            
+            # Validate description
+            if not description:
+                return AgentResponse(
+                    status="FAIL",
+                    data={},
+                    reasoning_trace="Code description is empty or missing",
+                    errors=["No code description provided. Cannot generate code without knowing what to create."]
+                )
             
             # Check for previous attempts and feedback
             previous_attempt = task.context.get("previous_attempt")

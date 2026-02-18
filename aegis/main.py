@@ -359,7 +359,7 @@ async def _run_task(prompt: str, verbose: bool, no_verify: bool) -> None:
         await state_manager.store_task(
             task_id=task_id,
             task_type="user_prompt",
-            payload={"prompt": prompt},
+            payload={"description": prompt},
             status="RUNNING"
         )
         
@@ -367,7 +367,7 @@ async def _run_task(prompt: str, verbose: bool, no_verify: bool) -> None:
         task = AgentTask(
             id=task_id,
             type="user_prompt",
-            payload={"prompt": prompt},
+            payload={"description": prompt},
             context={}
         )
         
