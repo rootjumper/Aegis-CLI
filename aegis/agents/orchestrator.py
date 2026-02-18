@@ -182,7 +182,10 @@ class OrchestratorAgent(BaseAgent):
         task: AgentTask,
         context: dict
     ) -> dict:
-        """Create execution plan using LLM with tools.
+        """Create execution plan using LLM WITHOUT tools (text-based planning).
+        
+        Tools don't work reliably with Llama 3.1, so we use prompt engineering
+        with embedded context instead of tool calls.
         
         Args:
             task: Task to plan for
@@ -191,91 +194,75 @@ class OrchestratorAgent(BaseAgent):
         Returns:
             Execution plan with files to create/modify
         """
-        from aegis.core.tool_bridge import create_toolset_from_registry
+        task_description = task.payload.get('description', '')
         
-        # Create planning prompt
-        planning_prompt = f"""Analyze this request and create a file execution plan:
+        # Get current workspace info (direct access, not via LLM tools)
+        workspace_name = self._generate_workspace_name(task_description)
+        
+        # Build enhanced planning prompt with embedded "tool" information
+        planning_prompt = f"""Analyze this request and create a file execution plan.
 
-REQUEST: {task.payload.get('description', '')}
+USER REQUEST: {task_description}
 
-WORKSPACE NAMING:
-- Choose a descriptive name based on the feature/component being created
-- Use snake_case (lowercase with underscores)
-- Be specific: "product_model" not "project", "users_rest_api" not "api"
-- Max 50 characters
-- Examples:
-  * "Create a Product model" → "product_model"
-  * "Build authentication system" → "authentication_system"
-  * "HTML calculator app" → "html_calculator_app"
-
-WORKSPACE CONTEXT:
-- Current workspace: {context['workspace'].get('name', 'None')}
-- Existing files: {len(context['workspace'].get('files', []))}
+WORKSPACE INFORMATION:
+- Suggested workspace name: {workspace_name}
+- Current workspace: {context.get('workspace', {}).get('name', 'None')}
+- Existing files: {len(context.get('workspace', {}).get('files', []))}
 - Has models: {context.get('has_models', False)}
 - Has tests: {context.get('has_tests', False)}
 
-TASK:
-1. Use filesystem tools to check what exists
-2. Use context tools to understand existing patterns
-3. Return a JSON plan with:
-   - workspace_name: Name for workspace (new or existing) - NOT "project"!
-   - files_to_create: List of files with paths and purposes
-   - files_to_modify: List of existing files to update
-   - dependencies: Order of file creation
+INSTRUCTIONS:
+1. Determine what files need to be created
+2. For web apps (HTML/JS/CSS), create proper structure:
+   - HTML files in src/ or root
+   - JavaScript in src/js/ or src/
+   - CSS in src/css/ or src/
+   - Tests if applicable (can be HTML or pytest)
 
-RESPOND WITH JSON:
+3. For Python projects, create:
+   - Source files in src/
+   - Tests in tests/
+   - Follow existing patterns if workspace exists
+
+4. Choose descriptive workspace name:
+   - Use snake_case
+   - Be specific: "html_calculator_app" not "project"
+   - Max 50 characters
+
+RESPOND WITH VALID JSON (no markdown, no explanation):
 {{
-    "workspace_name": "descriptive_feature_name",
+    "workspace_name": "descriptive_name",
     "use_existing_workspace": false,
     "files_to_create": [
-        {{"path": "src/models/product.py", "purpose": "Product model class"}},
-        {{"path": "tests/test_product.py", "purpose": "Product tests"}}
+        {{"path": "src/calculator.html", "purpose": "Main HTML calculator interface"}},
+        {{"path": "src/calculator.js", "purpose": "Calculator logic"}},
+        {{"path": "src/styles.css", "purpose": "Styling"}}
     ],
     "files_to_modify": [],
-    "creation_order": ["src/models/product.py", "tests/test_product.py"],
-    "reasoning": "Create Product model following existing patterns..."
+    "creation_order": ["src/calculator.html", "src/calculator.js", "src/styles.css"],
+    "reasoning": "Brief explanation of structure"
 }}
-"""
-        
-        # Create planning agent WITH tools
-        toolset = create_toolset_from_registry(self.registry)
+
+IMPORTANT: Return ONLY the JSON, no other text."""
+
+        # Create planning agent WITHOUT tools (text-based)
         planning_agent = PydanticAgent(
             model=self.get_model(),
-            tools=toolset,
-            system_prompt="""You are a planning agent.
-        
-Your job: Analyze requests and create file execution plans.
-
-Use tools to:
-- Check existing files (filesystem)
-- Understand project structure (context)
-- List directory contents (filesystem)
-
-Return a detailed JSON plan."""
+            # NO TOOLS - just text generation
+            system_prompt="You are a planning agent that creates file execution plans. Return only valid JSON."
         )
         
         # LOG PROMPT
-        # Extract system prompt from PydanticAgent for logging
-        # Note: Uses internal _system_prompts attribute as PydanticAI doesn't expose a public getter
-        system_prompt_str = None
-        try:
-            if hasattr(planning_agent, '_system_prompts') and planning_agent._system_prompts:
-                system_prompt_str = planning_agent._system_prompts[0]
-        except (AttributeError, IndexError, TypeError):
-            # Fallback to None if we can't extract the system prompt
-            system_prompt_str = None
-        
         interaction_id = self.llm_logger.log_prompt(
             agent_name="OrchestratorAgent (Planning)",
             prompt=planning_prompt,
             model=str(self.get_model()),
-            system_prompt=system_prompt_str,
-            tools=toolset
+            system_prompt="You are a planning agent that creates file execution plans. Return only valid JSON.",
+            tools=None  # No tools - text-based planning
         )
         
+        # Get plan
         result = await planning_agent.run(planning_prompt)
-        
-        # Parse the plan from response
         plan_text = self.parser.parse(result, content_type='text')
         
         # LOG RESPONSE
@@ -287,31 +274,48 @@ Return a detailed JSON plan."""
             finish_reason="stop"
         )
         
-        # Extract JSON from response (might be wrapped in markdown)
-        # Try to find JSON in response - use non-greedy match to avoid capturing multiple objects
-        json_match = re.search(r'\{.*?\}', plan_text, re.DOTALL)
-        if json_match:
-            try:
-                plan = json.loads(json_match.group())
-            except json.JSONDecodeError:
+        # Parse JSON from response
+        try:
+            # Try direct JSON parse
+            plan = json.loads(plan_text)
+        except json.JSONDecodeError:
+            # Try extracting JSON from markdown or text
+            # Use a more sophisticated approach to find JSON boundaries
+            # Look for the first complete JSON object
+            json_match = re.search(r'\{[\s\S]*?\}', plan_text)
+            if json_match:
+                try:
+                    plan = json.loads(json_match.group(0))
+                except json.JSONDecodeError:
+                    # If non-greedy didn't work, try finding a properly nested JSON
+                    # This handles cases where JSON might have nested objects
+                    depth = 0
+                    start_idx = plan_text.find('{')
+                    if start_idx != -1:
+                        for i, char in enumerate(plan_text[start_idx:], start=start_idx):
+                            if char == '{':
+                                depth += 1
+                            elif char == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    try:
+                                        plan = json.loads(plan_text[start_idx:i+1])
+                                        break
+                                    except json.JSONDecodeError:
+                                        pass
+                        else:
+                            # Fallback: create basic plan
+                            plan = self._create_fallback_plan(task)
+                    else:
+                        # Fallback: create basic plan
+                        plan = self._create_fallback_plan(task)
+            else:
                 # Fallback: create basic plan
                 plan = self._create_fallback_plan(task)
-        else:
-            # Fallback: create basic plan
-            plan = self._create_fallback_plan(task)
         
-        # Apply smart workspace naming if LLM gave generic name
-        if 'workspace_name' in plan:
-            if plan['workspace_name'] in ['project', 'default', 'workspace', 'feature_name']:
-                # LLM gave generic name, generate better one
-                plan['workspace_name'] = self._generate_workspace_name(
-                    task.payload.get('description', '')
-                )
-        else:
-            # No workspace name in plan, generate one
-            plan['workspace_name'] = self._generate_workspace_name(
-                task.payload.get('description', '')
-            )
+        # Ensure workspace name is smart, not generic
+        if plan.get('workspace_name') in ['project', 'default', 'workspace', 'descriptive_name', 'feature_name', None, '']:
+            plan['workspace_name'] = workspace_name
         
         return plan
     
