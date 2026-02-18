@@ -15,7 +15,7 @@ Aegis-CLI is a production-ready multi-agent framework that implements a "Plan-Ex
 - 🔄 **Self-Correction Loop**: Automatic verification and retry with feedback incorporation
 - 🧠 **Multi-LLM Support**: Use Anthropic, Google, Ollama, or LM Studio - [Configuration Guide](docs/LLM_CONFIGURATION.md)
 - 🛡️ **Security-First**: Built-in security checks and safe command execution
-- 📝 **Reasoning Traces**: Markdown-based logging of all agent thoughts and actions
+- 📝 **Full Trace Logging**: Complete logging of tool calls, parameters, and agent interactions - [Logging Guide](FULL_TRACE_LOGGING.md)
 - 💾 **Persistent Memory**: SQLite-based session management and agent memory
 - 🎯 **Type-Safe**: Full Python 3.11+ type hints throughout
 - 🧪 **Test-Driven**: Automatic test generation and validation
@@ -473,9 +473,38 @@ The project includes VS Code tasks for common operations:
 
 See `.vscode/tasks.json` for all available tasks.
 
-## Reasoning Traces
+## Logging and Traces
 
-All agent thoughts and actions are logged to `.aegis/logs/` in Markdown format:
+Aegis-CLI provides comprehensive logging at multiple levels:
+
+### Full Trace Logging
+
+All LLM interactions, tool calls, and agent actions are logged to `.aegis/llm_logs/` with complete details:
+
+- **Tool calls made by LLMs** - See exactly which tools the AI decides to use
+- **Complete parameters** - All arguments passed to tools with JSON formatting
+- **Agent prompts and responses** - Full conversation history
+- **File operations** - Detailed logging of filesystem changes
+
+**Example log output:**
+```
+TOOL CALLS (2):
+  [1] Tool Call:
+      Name: filesystem
+      ID: call_abc123
+      Parameters:
+        {
+            "action": "write_file",
+            "path": "app.py",
+            "content": "from flask import Flask..."
+        }
+```
+
+See the [Full Trace Logging Guide](FULL_TRACE_LOGGING.md) for complete documentation.
+
+### Reasoning Traces
+
+Task-level execution logs are stored in `.aegis/logs/` in Markdown format:
 
 ```markdown
 # Task Execution Log: user-task
