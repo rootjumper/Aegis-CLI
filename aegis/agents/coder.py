@@ -3,6 +3,7 @@
 Generates type-annotated Python code using best practices.
 """
 
+import re
 from typing import Any
 from pydantic_ai.models import Model
 
@@ -224,10 +225,16 @@ No other text before or after the code block."""
             if file_path:
                 fs_tool = self.registry.get_tool("filesystem")
                 if fs_tool:
+                    # Clean up any remaining markdown fence markers
+                    clean_code = generated_code
+                    clean_code = re.sub(r'^\s*```\w*\s*\n?', '', clean_code)  # Remove opening fence
+                    clean_code = re.sub(r'\n?\s*```\s*$', '', clean_code)      # Remove closing fence
+                    clean_code = clean_code.strip()
+                    
                     write_result = await fs_tool.execute(
                         action="write_file",
                         path=file_path,
-                        content=generated_code
+                        content=clean_code
                     )
                     
                     # LOG FILE OPERATION
@@ -236,7 +243,7 @@ No other text before or after the code block."""
                         operation="write_file",
                         file_path=file_path,
                         success=write_result.success,
-                        content_preview=generated_code[:200],
+                        content_preview=clean_code[:200],
                         error=write_result.error
                     )
                     

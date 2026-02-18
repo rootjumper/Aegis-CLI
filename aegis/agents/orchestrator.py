@@ -392,6 +392,9 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                 file_path = file_spec["path"]
                 file_purpose = file_spec["purpose"]
                 
+                # Compute full workspace path for file writing
+                full_file_path = self.workspace_manager.get_workspace_path(file_path)
+                
                 # Build rich description combining original request and file purpose
                 # Only append original description if it's not already the same as file_purpose
                 # to avoid redundant descriptions like "Product model for Create a Product model"
@@ -406,7 +409,7 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                     type="code",
                     payload={
                         "description": full_description,
-                        "file_path": file_path,
+                        "file_path": str(full_file_path),
                         "context": {
                             "workspace": workspace_name,
                             "existing_files": context["workspace"].get("files", []),
@@ -423,28 +426,17 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                 if code_response.status != "SUCCESS":
                     continue
                 
+                # Extract generated code from response
                 generated_code = code_response.data.get("code", "")
                 
-                # PHASE 4: EXECUTION (write to workspace)
-                fs_tool = self.registry.get_tool("filesystem")
-                if fs_tool:
-                    full_path = self.workspace_manager.get_workspace_path(file_path)
-                    
-                    # Ensure parent directory exists
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    write_result = await fs_tool.execute(
-                        action="write_file",
-                        path=str(full_path),
-                        content=generated_code
-                    )
-                    
-                    if write_result.success:
-                        generated_files.append({
-                            "path": file_path,
-                            "full_path": str(full_path),
-                            "purpose": file_purpose
-                        })
+                # CoderAgent now handles writing files directly with full path
+                # Just track successful code generation
+                if generated_code:
+                    generated_files.append({
+                        "path": file_path,
+                        "full_path": str(full_file_path),
+                        "purpose": file_purpose
+                    })
             
             # Check if files were created successfully
             expected_files = len(plan.get("files_to_create", []))

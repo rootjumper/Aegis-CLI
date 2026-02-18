@@ -3,6 +3,7 @@
 Generates and runs pytest tests for code validation.
 """
 
+import re
 from typing import Any
 from pydantic_ai.models import Model
 
@@ -131,10 +132,16 @@ Return ONLY the test code, no explanations."""
                 # Write test file
                 fs_tool = self.registry.get_tool("filesystem")
                 if fs_tool:
+                    # Clean up any remaining markdown fence markers
+                    clean_code = test_code
+                    clean_code = re.sub(r'^\s*```\w*\s*\n?', '', clean_code)  # Remove opening fence
+                    clean_code = re.sub(r'\n?\s*```\s*$', '', clean_code)      # Remove closing fence
+                    clean_code = clean_code.strip()
+                    
                     write_result = await fs_tool.execute(
                         action="write_file",
                         path=test_path,
-                        content=test_code
+                        content=clean_code
                     )
                     
                     # LOG FILE OPERATION
@@ -143,7 +150,7 @@ Return ONLY the test code, no explanations."""
                         operation="write_file",
                         file_path=test_path,
                         success=write_result.success,
-                        content_preview=test_code[:200],
+                        content_preview=clean_code[:200],
                         error=write_result.error
                     )
                     
@@ -152,7 +159,7 @@ Return ONLY the test code, no explanations."""
                         parameters={
                             "action": "write_file",
                             "path": test_path,
-                            "content": test_code[:100] + ("..." if len(test_code) > 100 else "")
+                            "content": clean_code[:100] + ("..." if len(clean_code) > 100 else "")
                         },
                         result=write_result.data,
                         success=write_result.success,
