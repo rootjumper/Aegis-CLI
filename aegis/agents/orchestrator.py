@@ -343,6 +343,57 @@ IMPORTANT: Return ONLY the JSON, no other text."""
             "reasoning": "Basic single-file plan"
         }
     
+    def _find_related_files(self, file_path: str, plan: dict) -> dict:
+        """Find files related to the given file based on the plan.
+        
+        This helps CoderAgent understand what files it should reference.
+        For example, if generating an HTML file, this returns JS and CSS files.
+        
+        Args:
+            file_path: Path of the file being generated
+            plan: Execution plan with all files to create
+            
+        Returns:
+            Dictionary with related files categorized by type
+        """
+        from pathlib import Path
+        
+        related = {
+            "javascript": [],
+            "stylesheets": [],
+            "html": [],
+            "other": []
+        }
+        
+        # Get file extension to determine what we're generating
+        current_ext = Path(file_path).suffix.lower()
+        
+        # Get all files from plan
+        all_files = plan.get("files_to_create", [])
+        
+        for file_spec in all_files:
+            other_path = file_spec["path"]
+            
+            # Skip self
+            if other_path == file_path:
+                continue
+            
+            other_ext = Path(other_path).suffix.lower()
+            
+            # Categorize related files
+            if other_ext in ['.js', '.mjs']:
+                related["javascript"].append(other_path)
+            elif other_ext in ['.css']:
+                related["stylesheets"].append(other_path)
+            elif other_ext in ['.html', '.htm']:
+                related["html"].append(other_path)
+            else:
+                related["other"].append(other_path)
+        
+        # If we're generating HTML, prioritize JS and CSS files
+        # If we're generating JS/CSS, note what HTML files might import them
+        return related
+    
     async def process(self, task: AgentTask) -> AgentResponse:
         """Process a task with smart planning and workspace management.
         
@@ -403,7 +454,10 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                 else:
                     full_description = file_purpose
                 
-                # Create task for CoderAgent with rich context
+                # Find related files for this file
+                related_files = self._find_related_files(file_path, plan)
+                
+                # Create task for CoderAgent with rich context including file relationships
                 code_task = AgentTask(
                     id=f"{task.id}_code_{len(generated_files)}",
                     type="code",
@@ -414,7 +468,9 @@ IMPORTANT: Return ONLY the JSON, no other text."""
                             "workspace": workspace_name,
                             "existing_files": context["workspace"].get("files", []),
                             "plan": plan.get("reasoning", ""),
-                            "original_request": original_description
+                            "original_request": original_description,
+                            "all_files": plan.get("files_to_create", []),
+                            "related_files": related_files
                         }
                     },
                     context=task.context

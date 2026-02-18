@@ -127,6 +127,41 @@ class CoderAgent(BaseAgent):
             # Detect language from file path
             language_name, markdown_tag = self._detect_language_from_path(file_path)
             
+            # Extract related files information
+            related_files = context_info.get("related_files", {})
+            all_files = context_info.get("all_files", [])
+            
+            # Build file structure information for prompt
+            file_structure_info = ""
+            if related_files:
+                # For HTML files, show JS and CSS files they should reference
+                if markdown_tag == 'html':
+                    if related_files.get("javascript"):
+                        file_structure_info += "\n\nJavaScript files to reference:\n"
+                        for js_file in related_files["javascript"]:
+                            file_structure_info += f"  - {js_file}\n"
+                    if related_files.get("stylesheets"):
+                        file_structure_info += "\nCSS files to reference:\n"
+                        for css_file in related_files["stylesheets"]:
+                            file_structure_info += f"  - {css_file}\n"
+                    
+                    if file_structure_info:
+                        file_structure_info += "\nIMPORTANT: Use the EXACT paths listed above in your <script> and <link> tags.\n"
+                        file_structure_info += "Include the subdirectory prefix (e.g., 'js/' or 'css/') if present in the paths.\n"
+                
+                # For JS/CSS files, show what HTML files might import them
+                elif markdown_tag in ['javascript', 'css']:
+                    if related_files.get("html"):
+                        file_structure_info += "\n\nHTML files that will import this file:\n"
+                        for html_file in related_files["html"]:
+                            file_structure_info += f"  - {html_file}\n"
+            
+            # If we have all_files, show the complete project structure
+            if all_files and len(all_files) > 1:
+                file_structure_info += "\n\nComplete file structure for this project:\n"
+                for file_spec in all_files:
+                    file_structure_info += f"  - {file_spec['path']}: {file_spec['purpose']}\n"
+            
             # Build language-specific prompt
             prompt = f"""Generate {language_name} code for: {description}
 
@@ -136,6 +171,7 @@ TARGET FILE: {file_path}
 
 CONTEXT:
 {json.dumps(context_info, indent=2) if context_info else 'No additional context'}
+{file_structure_info}
 
 REQUIREMENTS:
 - Generate clean, production-ready {language_name} code
@@ -325,6 +361,9 @@ For HTML:
 - Use semantic HTML5 tags
 - Include accessibility attributes (ARIA, alt, role, etc.)
 - Proper document structure
+- When referencing JavaScript/CSS files, use EXACT paths provided in the context
+- Include subdirectory prefixes (e.g., js/, css/) as specified
+- Do NOT use generic names like 'script.js' or 'styles.css' unless that's the actual filename
 
 For CSS:
 - Use modern CSS3 features
