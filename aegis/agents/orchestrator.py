@@ -384,6 +384,8 @@ Return a detailed JSON plan."""
                 file_purpose = file_spec["purpose"]
                 
                 # Build rich description combining original request and file purpose
+                # Only append original description if it's not already the same as file_purpose
+                # to avoid redundant descriptions like "Product model for Create a Product model"
                 if original_description and file_purpose != original_description:
                     full_description = f"{file_purpose} for {original_description}"
                 else:
@@ -453,7 +455,7 @@ Return a detailed JSON plan."""
             
             # Check if all files were created
             if len(generated_files) < expected_files:
-                # Partial success
+                # Partial file creation is treated as failure - some files missing
                 return AgentResponse(
                     status="FAIL",
                     data={
