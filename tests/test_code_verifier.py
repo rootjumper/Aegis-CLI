@@ -262,8 +262,8 @@ class TestLayer3SemanticVerification:
         ]
         result = verify_generated_code(temp_workspace, file_specs)
         
-        # Should warn about missing function
-        assert any("calculateResult" in w.message for w in result.warnings)
+        # Should error about missing function (upgraded from warning to error for Layer 3)
+        assert any("calculateResult" in e.message for e in result.critical_errors)
     
     def test_html_function_exists_in_js(self, temp_workspace):
         """Test that functions found in JS don't trigger warnings."""
