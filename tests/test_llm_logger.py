@@ -221,3 +221,125 @@ def test_workspace_name_sanitization():
     # Should not start or end with underscore
     assert not result.startswith('_')
     assert not result.endswith('_')
+
+
+def test_extract_tool_info_with_string():
+    """Test extracting tool info from string."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        tools = ["tool1", "tool2"]
+        tool_info = logger._extract_tool_info(tools)
+        
+        assert len(tool_info) == 2
+        assert tool_info[0]['name'] == "tool1"
+        assert tool_info[0]['type'] == "string"
+        assert tool_info[1]['name'] == "tool2"
+
+
+def test_extract_tool_info_with_tool_object():
+    """Test extracting tool info from actual tool object."""
+    from aegis.tools.filesystem import FileSystemTool
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        fs_tool = FileSystemTool()
+        tool_info = logger._extract_tool_info([fs_tool])
+        
+        assert len(tool_info) == 1
+        assert tool_info[0]['name'] == "filesystem"
+        assert 'description' in tool_info[0]
+        assert 'parameters' in tool_info[0]
+        assert isinstance(tool_info[0]['parameters'], dict)
+
+
+def test_extract_tool_info_with_callable():
+    """Test extracting tool info from callable function."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        def test_function(arg1: str, arg2: int) -> str:
+            """Test function description."""
+            return "result"
+        
+        test_function.__name__ = "test_tool"
+        tool_info = logger._extract_tool_info([test_function])
+        
+        assert len(tool_info) == 1
+        assert tool_info[0]['name'] == "test_tool"
+        assert 'signature' in tool_info[0]
+        assert 'arg1' in tool_info[0]['signature']
+        assert 'arg2' in tool_info[0]['signature']
+
+
+def test_log_prompt_with_enhanced_tool_info():
+    """Test that log_prompt logs comprehensive tool information."""
+    from aegis.tools.filesystem import FileSystemTool
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        fs_tool = FileSystemTool()
+        
+        interaction_id = logger.log_prompt(
+            agent_name="TestAgent",
+            prompt="Test prompt",
+            model="test-model",
+            tools=[fs_tool]
+        )
+        
+        assert interaction_id == 1
+        
+        # Check log file content
+        with open(logger.session_log, 'r') as f:
+            content = f.read()
+            # Should contain tool name
+            assert "filesystem" in content
+            # Should contain tool details section
+            assert "TOOLS (1)" in content
+            # Should contain description
+            assert "Description:" in content
+            # Should contain parameters
+            assert "Parameters:" in content
+
+
+def test_log_prompt_with_no_tools():
+    """Test that log_prompt handles no tools gracefully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        interaction_id = logger.log_prompt(
+            agent_name="TestAgent",
+            prompt="Test prompt",
+            model="test-model",
+            tools=None
+        )
+        
+        assert interaction_id == 1
+        
+        # Check log file content
+        with open(logger.session_log, 'r') as f:
+            content = f.read()
+            # Should indicate text-based mode
+            assert "TOOLS: None (text-based mode)" in content
+
+
+def test_log_prompt_with_empty_tools_list():
+    """Test that log_prompt handles empty tools list."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logger = LLMLogger(log_dir=tmpdir, verbose=False)
+        
+        interaction_id = logger.log_prompt(
+            agent_name="TestAgent",
+            prompt="Test prompt",
+            model="test-model",
+            tools=[]
+        )
+        
+        assert interaction_id == 1
+        
+        # Check log file content
+        with open(logger.session_log, 'r') as f:
+            content = f.read()
+            # Should indicate text-based mode
+            assert "TOOLS: None (text-based mode)" in content

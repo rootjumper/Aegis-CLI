@@ -1,6 +1,7 @@
 """LLM interaction logger for detailed tracing."""
 
 import json
+import inspect
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
@@ -29,6 +30,103 @@ class LLMLogger:
         self.session_log = self.log_dir / f"session_{timestamp}.log"
         self.interaction_count = 0
     
+    def _extract_tool_info(self, tools: Optional[list]) -> list[dict[str, Any]]:
+        """Extract comprehensive tool information for logging.
+        
+        This method extracts detailed information from tool objects including:
+        - Tool name
+        - Description
+        - Parameters/schema
+        - Function signature
+        - Type information
+        
+        Args:
+            tools: List of tool objects (can be strings, callables, or tool instances)
+            
+        Returns:
+            List of dictionaries containing tool information
+        """
+        tool_info = []
+        
+        for tool in (tools or []):
+            if isinstance(tool, str):
+                tool_info.append({"name": tool, "type": "string"})
+                continue
+            
+            # Try to extract comprehensive tool information
+            info: dict[str, Any] = {"type": str(type(tool).__name__)}
+            
+            # Name - try multiple attributes
+            for attr in ['name', '__name__', 'function_name', 'tool_name']:
+                if hasattr(tool, attr):
+                    name_value = getattr(tool, attr)
+                    if name_value:
+                        info['name'] = name_value
+                        break
+            
+            # Description - try multiple attributes
+            for attr in ['description', '__doc__', 'tool_description']:
+                if hasattr(tool, attr):
+                    desc = getattr(tool, attr)
+                    if desc:
+                        # Clean up docstrings
+                        if isinstance(desc, str):
+                            desc = desc.strip()
+                            # Take first line or first 200 chars
+                            if '\n' in desc:
+                                desc = desc.split('\n')[0]
+                            if len(desc) > 200:
+                                desc = desc[:200] + "..."
+                        info['description'] = desc
+                        break
+            
+            # Parameters/Schema - try multiple attributes
+            for attr in ['parameters_schema', 'parameters', 'schema', 'input_schema', 'args_schema']:
+                if hasattr(tool, attr):
+                    params = getattr(tool, attr)
+                    if params:
+                        # Convert to dict if possible
+                        if callable(params):
+                            try:
+                                params = params()
+                            except Exception:
+                                params = str(params)
+                        
+                        if hasattr(params, 'dict'):
+                            try:
+                                info['parameters'] = params.dict()
+                            except Exception:
+                                info['parameters'] = str(params)
+                        elif hasattr(params, '__dict__'):
+                            info['parameters'] = params.__dict__
+                        elif isinstance(params, dict):
+                            info['parameters'] = params
+                        else:
+                            info['parameters'] = str(params)
+                        break
+            
+            # Callable signature
+            if callable(tool):
+                try:
+                    sig = inspect.signature(tool)
+                    info['signature'] = str(sig)
+                except Exception:
+                    pass
+            
+            # Try to get full representation (truncated)
+            if hasattr(tool, '__dict__'):
+                try:
+                    full_dict = str(tool.__dict__)
+                    if len(full_dict) > 300:
+                        full_dict = full_dict[:300] + "..."
+                    info['full_dict'] = full_dict
+                except Exception:
+                    pass
+            
+            tool_info.append(info)
+        
+        return tool_info
+    
     def log_prompt(
         self,
         agent_name: str,
@@ -52,6 +150,9 @@ class LLMLogger:
         self.interaction_count += 1
         interaction_id = self.interaction_count
         
+        # Extract comprehensive tool info
+        tool_info = self._extract_tool_info(tools)
+        
         log_entry = {
             "interaction_id": interaction_id,
             "timestamp": datetime.now().isoformat(),
@@ -61,8 +162,7 @@ class LLMLogger:
             "prompt_length": len(prompt),
             "prompt": prompt,
             "system_prompt": system_prompt,
-            "tools": [t if isinstance(t, str) else getattr(t, '__name__', str(t)) 
-                     for t in (tools or [])]
+            "tools": tool_info  # Use comprehensive info instead of just names
         }
         
         # Write to session log
@@ -73,8 +173,29 @@ class LLMLogger:
             f.write(f"{'='*80}\n")
             if system_prompt:
                 f.write(f"\nSYSTEM PROMPT:\n{system_prompt}\n\n")
-            if tools:
-                f.write(f"TOOLS AVAILABLE: {', '.join(log_entry['tools'])}\n\n")
+            if tool_info:
+                f.write(f"TOOLS ({len(tool_info)}):\n")
+                for i, tool in enumerate(tool_info, 1):
+                    f.write(f"\n  [{i}] {tool.get('name', 'unnamed')}\n")
+                    if 'type' in tool:
+                        f.write(f"      Type: {tool['type']}\n")
+                    if 'description' in tool:
+                        f.write(f"      Description: {tool['description']}\n")
+                    if 'parameters' in tool:
+                        # Pretty print parameters if it's a dict
+                        params = tool['parameters']
+                        if isinstance(params, dict):
+                            params_str = json.dumps(params, indent=10)
+                            # Indent each line
+                            params_str = '\n'.join('      ' + line for line in params_str.split('\n'))
+                            f.write(f"      Parameters:\n{params_str}\n")
+                        else:
+                            f.write(f"      Parameters: {params}\n")
+                    if 'signature' in tool:
+                        f.write(f"      Signature: {tool['signature']}\n")
+                f.write("\n")
+            else:
+                f.write(f"TOOLS: None (text-based mode)\n\n")
             f.write(f"USER PROMPT ({len(prompt)} chars):\n{prompt}\n")
         
         # Console output if verbose
